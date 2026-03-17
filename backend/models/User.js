@@ -8,6 +8,7 @@ const userSchema = new mongoose.Schema(
     phone: { type: String, required: true, trim: true },
     image: { type: String, default: "" },
     isAdmin: { type: Boolean, default: false },
+    isVerified: { type: Boolean, default: true },
     deliveryAddress1: { type: String, default: "" },
     deliveryAddress2: { type: String, default: "" },
     deliveryCity: { type: String, default: "" },

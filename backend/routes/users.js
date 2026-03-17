@@ -67,6 +67,7 @@ router.post("/register", upload.single("image"), async (req, res) => {
       phone: String(phone).trim(),
       image,
       isAdmin,
+      isVerified: true,
     });
 
     return res.status(201).json({
@@ -75,6 +76,83 @@ router.post("/register", upload.single("image"), async (req, res) => {
     });
   } catch (error) {
     return res.status(500).json({ message: "Failed to register user" });
+  }
+});
+
+// [MP2] Google sign-in - verifies id_token, finds or creates user, returns JWT
+router.post("/auth/google", async (req, res) => {
+  try {
+    const { idToken } = req.body;
+    console.log("[auth/google] Request received. idToken present:", Boolean(idToken));
+    if (!idToken) {
+      return res.status(400).json({ message: "idToken is required" });
+    }
+    if (!config.googleClientIds || config.googleClientIds.length === 0) {
+      return res
+        .status(503)
+        .json({ message: "Google sign-in is not configured. Set GOOGLE_CLIENT_ID or GOOGLE_CLIENT_IDS in .env" });
+    }
+
+    const url = `https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(idToken)}`;
+    const resp = await fetch(url);
+    const data = await resp.json();
+    console.log("[auth/google] tokeninfo status:", resp.status);
+    console.log("[auth/google] token aud:", data?.aud);
+
+    const allowedAudiences = config.googleClientIds;
+    console.log("[auth/google] allowed audiences:", allowedAudiences);
+    if (data.error || !allowedAudiences.includes(data.aud)) {
+      console.log("[auth/google] token rejected. error:", data?.error || "audience mismatch");
+      return res.status(401).json({ message: "Invalid Google token" });
+    }
+
+    const email = (data.email || "").trim().toLowerCase();
+    const name = (data.name || data.email || "User").trim();
+    const image = data.picture || "";
+
+    let user = await User.findOne({ email }).lean();
+    if (!user) {
+      console.log("[auth/google] No existing user. Creating:", email);
+      const passwordHash = await bcrypt.hash(
+        `social-${Date.now()}-${Math.random().toString(36)}`,
+        10
+      );
+      const newUser = await User.create({
+        name,
+        email,
+        passwordHash,
+        phone: "social-signup",
+        image,
+        isAdmin: false,
+        isVerified: true,
+      });
+      user = newUser.toObject();
+    } else {
+      console.log("[auth/google] Existing user found:", email);
+      if (!user.isVerified) {
+        await User.updateOne({ _id: user._id }, { $set: { isVerified: true } });
+        user.isVerified = true;
+      }
+      user.id = user._id.toString();
+      delete user._id;
+      delete user.passwordHash;
+      delete user.pushToken;
+      delete user.pushTokenType;
+    }
+
+    const payload = {
+      userId: user.id || user._id?.toString(),
+      email: user.email,
+      isAdmin: user.isAdmin || false,
+    };
+    const token = jwt.sign(payload, config.jwtSecret, {
+      expiresIn: config.jwtExpiresIn,
+    });
+    console.log("[auth/google] Success. Returning JWT for:", email);
+    return res.status(200).json({ token, user: payload });
+  } catch (err) {
+    console.error("[auth/google] Error:", err.message);
+    return res.status(500).json({ message: "Google sign-in failed" });
   }
 });
 
@@ -193,6 +271,30 @@ router.put("/profile", authJwt, async (req, res) => {
     return res.status(200).json(user.toJSON());
   } catch (_error) {
     return res.status(500).json({ message: "Failed to update profile" });
+  }
+});
+
+// PUT /users/profile/image — upload/update profile photo
+router.put("/profile/image", authJwt, upload.single("image"), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ message: "Profile image is required" });
+    }
+
+    const image = buildImageUrl(req, req.file.filename);
+    const user = await User.findByIdAndUpdate(
+      req.user.userId,
+      { image },
+      { new: true }
+    );
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    return res.status(200).json(user.toJSON());
+  } catch (_error) {
+    return res.status(500).json({ message: "Failed to update profile image" });
   }
 });
 

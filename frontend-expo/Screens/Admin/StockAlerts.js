@@ -1,16 +1,16 @@
 import React, { useCallback, useState } from "react";
 import { View, FlatList, Text, StyleSheet, RefreshControl } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import axios from "axios";
 import baseURL from "../../assets/common/baseurl";
+import { getJwtToken } from "../../assets/common/authToken";
 
 const StockAlerts = () => {
     const [alerts, setAlerts] = useState([]);
     const [refreshing, setRefreshing] = useState(false);
 
     const loadAlerts = () => {
-        return AsyncStorage.getItem("jwt")
+        return getJwtToken()
             .then((res) =>
                 axios.get(`${baseURL}stock-alerts`, {
                     headers: { Authorization: `Bearer ${res || ""}` },

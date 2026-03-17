@@ -15,7 +15,12 @@ const DrawerContent = () => {
     };
 
     return (
-        <Drawer.Section title="Drawer">
+        <Drawer.Section title="Menu">
+            <Drawer.Item
+                label="Home"
+                onPress={() => navigation.navigate("My app", { screen: "Home" })}
+                icon="home"
+            />
             <Drawer.Item
                 label="My Profile"
                 onPress={() => navigation.navigate("User", { screen: "User Profile" })}

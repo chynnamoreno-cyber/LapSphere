@@ -2,8 +2,24 @@ const admin = require("firebase-admin");
 const fs = require("fs");
 const path = require("path");
 const config = require("../config");
+const User = require("../models/User");
 
 let firebaseInitialized = false;
+
+async function clearStaleTokens(tokens = []) {
+  const uniqueTokens = [...new Set((tokens || []).filter(Boolean))];
+  if (uniqueTokens.length === 0) return;
+
+  try {
+    const result = await User.updateMany(
+      { pushToken: { $in: uniqueTokens } },
+      { $set: { pushToken: "", pushTokenType: "" } }
+    );
+    console.log(`[notifications] Cleared stale tokens: ${result.modifiedCount || 0}`);
+  } catch (error) {
+    console.warn("[notifications] Failed to clear stale tokens:", error.message);
+  }
+}
 
 function initFirebase() {
   if (firebaseInitialized) return;
@@ -47,6 +63,17 @@ async function sendFCM(tokens, title, body, data) {
   try {
     const result = await admin.messaging().sendEachForMulticast(message);
     console.log(`[notifications] FCM sent: ${result.successCount} success, ${result.failureCount} failed`);
+
+    const staleTokens = [];
+    result.responses.forEach((entry, index) => {
+      if (!entry?.success) {
+        const code = entry?.error?.code || "";
+        if (code === "messaging/registration-token-not-registered" || code === "messaging/invalid-registration-token") {
+          staleTokens.push(tokens[index]);
+        }
+      }
+    });
+    await clearStaleTokens(staleTokens);
   } catch (error) {
     console.warn("[notifications] FCM send error:", error.message);
   }
@@ -76,6 +103,16 @@ async function sendExpo(tokens, title, body, data) {
     });
     const result = await response.json();
     console.log(`[notifications] Expo push sent to ${tokens.length} token(s):`, JSON.stringify(result.data?.map(d => d.status) || result));
+
+    const staleTokens = [];
+    const receipts = Array.isArray(result?.data) ? result.data : [];
+    receipts.forEach((entry, index) => {
+      const errorCode = entry?.details?.error || "";
+      if (entry?.status === "error" && errorCode === "DeviceNotRegistered") {
+        staleTokens.push(tokens[index]);
+      }
+    });
+    await clearStaleTokens(staleTokens);
   } catch (error) {
     console.warn("[notifications] Expo push error:", error.message);
   }

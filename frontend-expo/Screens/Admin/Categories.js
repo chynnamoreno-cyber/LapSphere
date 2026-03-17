@@ -11,7 +11,7 @@ import {
 import EasyButton from "../../Shared/StyledComponents/EasyButton";
 import baseURL from "../../assets/common/baseurl";
 import axios from "axios";
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import { getJwtToken } from "../../assets/common/authToken";
 
 var { width } = Dimensions.get("window");
 
@@ -54,7 +54,7 @@ const Categories = () => {
     const [deletingId, setDeletingId] = useState(null);
 
     useEffect(() => {
-        AsyncStorage.getItem("jwt").then((res) => setToken(res || "")).catch(() => {});
+        getJwtToken().then((res) => setToken(res || "")).catch(() => {});
         axios.get(`${baseURL}categories`).then((res) => setCategories(res.data)).catch(() => alert("Error loading categories"));
         return () => {
             setCategories([]);

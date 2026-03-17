@@ -3,11 +3,11 @@ import { View, StyleSheet, Dimensions, ScrollView, Button, Text } from "react-na
 import { Surface, Avatar, Divider } from "react-native-paper";
 import { useNavigation } from "@react-navigation/native";
 import { useDispatch } from "react-redux";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import axios from "axios";
 import baseURL from "../../assets/common/baseurl";
 import Toast from "react-native-toast-message";
 import { clearCart } from "../../Redux/Actions/cartActions";
+import { getJwtToken } from "../../assets/common/authToken";
 
 var { width, height } = Dimensions.get("window");
 const FALLBACK_IMAGE = "https://cdn.pixabay.com/photo/2012/04/01/17/29/box-23649_960_720.png";
@@ -20,7 +20,7 @@ const Confirm = (props) => {
     const navigation = useNavigation();
 
     const confirmOrder = () => {
-        AsyncStorage.getItem("jwt")
+        getJwtToken()
             .then((res) => {
                 setToken(res || "");
                 const config = { headers: { Authorization: "Bearer " + res } };

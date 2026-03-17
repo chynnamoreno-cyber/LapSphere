@@ -1,244 +1,312 @@
-import React, { useState, useEffect } from "react";
+/**
+ * Register screen: Create Account design. Connects to backend users/register
+ */
+import React, { useState, useContext } from "react";
 import {
     View,
     Text,
     StyleSheet,
-    Image,
     TouchableOpacity,
-    Button,
     ActivityIndicator,
+    ScrollView,
+    KeyboardAvoidingView,
+    Platform,
+    Image,
 } from "react-native";
-import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
 import { useNavigation } from "@react-navigation/native";
-import FormContainer from "../../Shared/FormContainer";
+import { Ionicons } from "@expo/vector-icons";
+import * as ImagePicker from "expo-image-picker";
+import mime from "mime";
 import Input from "../../Shared/Input";
+import SocialLoginButtons from "../../Shared/SocialLoginButtons";
+import AuthGlobal from "../../Context/Store/AuthGlobal";
 import axios from "axios";
 import baseURL from "../../assets/common/baseurl";
 import Toast from "react-native-toast-message";
-import { Camera } from "expo-camera";
-import { Ionicons } from "@expo/vector-icons";
-import mime from "mime";
-import * as ImagePicker from "expo-image-picker";
-import * as Location from "expo-location";
 
 const Register = () => {
-    const [email, setEmail] = useState("");
+    const context = useContext(AuthGlobal);
+    const navigation = useNavigation();
     const [name, setName] = useState("");
+    const [email, setEmail] = useState("");
     const [phone, setPhone] = useState("");
     const [password, setPassword] = useState("");
+    const [confirmPassword, setConfirmPassword] = useState("");
+    const [image, setImage] = useState("");
     const [error, setError] = useState("");
-    const [hasCameraPermission, setHasCameraPermission] = useState(null);
-    const [image, setImage] = useState(null);
-    const [mainImage, setMainImage] = useState("");
-    const [location, setLocation] = useState(null);
-    const [errorMsg, setErrorMsg] = useState(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
-    const navigation = useNavigation();
+
+    const pickFromGallery = async () => {
+        const result = await ImagePicker.launchImageLibraryAsync({
+            mediaTypes: ["images"],
+            allowsEditing: true,
+            aspect: [1, 1],
+            quality: 0.9,
+        });
+        if (!result.canceled) setImage(result.assets[0].uri);
+    };
 
     const takePhoto = async () => {
-        const c = await ImagePicker.requestCameraPermissionsAsync();
-        if (c.status === "granted") {
-            let result = await ImagePicker.launchCameraAsync({
-                aspect: [4, 3],
-                quality: 1,
-            });
-            if (!result.canceled) {
-                setMainImage(result.assets[0].uri);
-                setImage(result.assets[0].uri);
-            }
-        }
+        const result = await ImagePicker.launchCameraAsync({
+            allowsEditing: true,
+            aspect: [1, 1],
+            quality: 0.9,
+        });
+        if (!result.canceled) setImage(result.assets[0].uri);
     };
 
     const register = () => {
-        if (email === "" || name === "" || phone === "" || password === "") {
-            setError("Please fill in the form correctly");
+        if (
+            !name.trim() ||
+            !email.trim() ||
+            !phone.trim() ||
+            !password ||
+            !confirmPassword
+        ) {
+            setError("Please fill in all fields");
+            return;
+        }
+        if (password !== confirmPassword) {
+            setError("Passwords do not match");
+            return;
+        }
+        if (password.length < 6) {
+            setError("Password must be at least 6 characters");
             return;
         }
         setError("");
         setIsSubmitting(true);
 
-        let formData = new FormData();
-        formData.append("name", name);
-        formData.append("email", email);
+        const formData = new FormData();
+        formData.append("name", name.trim());
+        formData.append("email", email.trim().toLowerCase());
         formData.append("password", password);
-        formData.append("phone", phone);
-        formData.append("isAdmin", false);
+        formData.append("phone", phone.trim());
+        formData.append("isAdmin", "false");
 
         if (image) {
-            const newImageUri = "file:///" + image.split("file:/").join("");
+            const fileUri = image.startsWith("file://") ? image : `file://${image}`;
             formData.append("image", {
-                uri: newImageUri,
-                type: mime.getType(newImageUri),
-                name: newImageUri.split("/").pop(),
+                uri: fileUri,
+                type: mime.getType(fileUri) || "image/jpeg",
+                name: fileUri.split("/").pop() || `user-${Date.now()}.jpg`,
             });
         }
 
-        const config = {
-            headers: { "Content-Type": "multipart/form-data" },
-        };
+        const config = { headers: { "Content-Type": "multipart/form-data" } };
 
         axios
             .post(`${baseURL}users/register`, formData, config)
-            .then((res) => {
-                if (res.status === 200) {
-                    Toast.show({
-                        topOffset: 60,
-                        type: "success",
-                        text1: "Registration Succeeded",
-                        text2: "Please login into your account",
-                    });
-                    setTimeout(() => navigation.navigate("Login"), 500);
-                }
+            .then(() => {
+                Toast.show({
+                    topOffset: 60,
+                    type: "success",
+                    text1: "Registration Succeeded",
+                    text2: "Please sign in to your account",
+                });
+                navigation.navigate("Login");
             })
             .catch((err) => {
+                const msg =
+                    err.response?.data?.message || "Something went wrong";
+                setError(msg);
                 Toast.show({
-                    position: "bottom",
-                    bottomOffset: 20,
                     type: "error",
-                    text1: "Something went wrong",
-                    text2: "Please try again",
+                    text1: "Registration failed",
+                    text2: msg,
                 });
-                console.log(err);
             })
             .finally(() => setIsSubmitting(false));
     };
 
-    const pickImage = async () => {
-        let result = await ImagePicker.launchImageLibraryAsync({
-            mediaTypes: ["images"],
-            allowsEditing: true,
-            aspect: [4, 3],
-            quality: 1,
-        });
-        if (!result.canceled) {
-            setImage(result.assets[0].uri);
-            setMainImage(result.assets[0].uri);
-        }
-    };
-
-    useEffect(() => {
-        (async () => {
-            const cameraStatus = await Camera.requestCameraPermissionsAsync();
-            setHasCameraPermission(cameraStatus.status === "granted");
-        })();
-        (async () => {
-            let { status } = await Location.requestForegroundPermissionsAsync();
-            if (status !== "granted") {
-                setErrorMsg("Permission to access location was denied");
-                return;
-            }
-            let loc = await Location.getCurrentPositionAsync({});
-            setLocation(loc);
-        })();
-    }, []);
-
     return (
-        <KeyboardAwareScrollView
-            viewIsInsideTabBar={true}
-            extraHeight={200}
-            enableOnAndroid={true}
+        <KeyboardAvoidingView
+            style={styles.container}
+            behavior={Platform.OS === "ios" ? "padding" : undefined}
         >
-            <FormContainer title="Register">
-                <View style={styles.imageContainer}>
+            <ScrollView
+                contentContainerStyle={styles.scroll}
+                keyboardShouldPersistTaps="handled"
+                showsVerticalScrollIndicator={false}
+            >
+                <Text style={styles.title}>Create Account</Text>
+                <Text style={styles.subtitle}>
+                    Shop the best products. Create an account to get started.
+                </Text>
+
+                <View style={styles.imagePickerWrap}>
                     <Image
-                        style={styles.image}
-                        source={mainImage ? { uri: mainImage } : null}
+                        source={{ uri: image || "https://cdn.pixabay.com/photo/2015/10/05/22/37/blank-profile-picture-973460_960_720.png" }}
+                        style={styles.avatar}
                     />
-                    <TouchableOpacity onPress={takePhoto} style={styles.imagePicker}>
-                        <Ionicons name="camera" style={{ color: "white" }} />
+                    <View style={styles.imageButtonsRow}>
+                        <TouchableOpacity style={styles.imageBtn} onPress={pickFromGallery}>
+                            <Ionicons name="images-outline" size={16} color="#fff" />
+                            <Text style={styles.imageBtnText}>Gallery</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity style={styles.imageBtn} onPress={takePhoto}>
+                            <Ionicons name="camera-outline" size={16} color="#fff" />
+                            <Text style={styles.imageBtnText}>Camera</Text>
+                        </TouchableOpacity>
+                    </View>
+                </View>
+
+                <View style={styles.form}>
+                    <Input
+                        placeholder="Username"
+                        value={name}
+                        onChangeText={setName}
+                    />
+                    <Input
+                        placeholder="Email"
+                        value={email}
+                        onChangeText={(t) => setEmail(t.toLowerCase())}
+                        autoCapitalize="none"
+                        keyboardType="email-address"
+                    />
+                    <Input
+                        placeholder="Phone"
+                        value={phone}
+                        onChangeText={setPhone}
+                        keyboardType="phone-pad"
+                    />
+                    <Input
+                        placeholder="Password"
+                        value={password}
+                        onChangeText={setPassword}
+                        secureTextEntry
+                        showToggle
+                    />
+                    <Input
+                        placeholder="Confirm Password"
+                        value={confirmPassword}
+                        onChangeText={setConfirmPassword}
+                        secureTextEntry
+                        showToggle
+                    />
+
+                    {error ? (
+                        <Text style={styles.errorText}>{error}</Text>
+                    ) : null}
+                    {isSubmitting ? (
+                        <ActivityIndicator
+                            size="small"
+                            color="#000"
+                            style={styles.loader}
+                        />
+                    ) : null}
+
+                    <TouchableOpacity
+                        style={styles.primaryBtn}
+                        onPress={register}
+                        disabled={isSubmitting}
+                    >
+                        <Text style={styles.primaryBtnText}>Sign Up</Text>
                     </TouchableOpacity>
                 </View>
-                <Input
-                    label="Email"
-                    placeholder="Enter your email"
-                    name="email"
-                    id="email"
-                    autoCapitalize="none"
-                    keyboardType="email-address"
-                    onChangeText={(text) => setEmail(text.toLowerCase())}
+
+                <Text style={styles.divider}>Or continue with</Text>
+                <SocialLoginButtons
+                    dispatch={context.dispatch}
+                    variant="outline"
                 />
-                <Input
-                    label="Full Name"
-                    placeholder="Enter your name"
-                    name="name"
-                    id="name"
-                    onChangeText={(text) => setName(text)}
-                />
-                <Input
-                    label="Phone Number"
-                    placeholder="Enter your phone number"
-                    name="phone"
-                    id="phone"
-                    keyboardType="numeric"
-                    onChangeText={(text) => setPhone(text)}
-                />
-                <Input
-                    label="Password"
-                    placeholder="Create a password"
-                    name="password"
-                    id="password"
-                    secureTextEntry={true}
-                    showToggle={true}
-                    onChangeText={(text) => setPassword(text)}
-                />
-                <View style={styles.buttonGroup}>
-                    {error ? <Text style={{ color: "red" }}>{error}</Text> : null}
-                    {isSubmitting ? (
-                        <View style={styles.loadingRow}>
-                            <ActivityIndicator size="small" />
-                            <Text style={styles.loadingText}>Registering...</Text>
-                        </View>
-                    ) : null}
+
+                <View style={styles.footer}>
+                    <Text style={styles.footerText}>
+                        Already have an account?{" "}
+                    </Text>
+                    <TouchableOpacity onPress={() => navigation.navigate("Login")}>
+                        <Text style={styles.signInLink}>Sign In</Text>
+                    </TouchableOpacity>
                 </View>
-                <View>
-                    <Button title="Register" onPress={() => register()} disabled={isSubmitting} />
-                </View>
-            </FormContainer>
-        </KeyboardAwareScrollView>
+            </ScrollView>
+        </KeyboardAvoidingView>
     );
 };
 
 const styles = StyleSheet.create({
-    buttonGroup: {
-        width: "80%",
-        margin: 10,
-        alignItems: "center",
+    container: { flex: 1, backgroundColor: "#fff" },
+    scroll: {
+        flexGrow: 1,
+        paddingHorizontal: 24,
+        paddingTop: 48,
+        paddingBottom: 40,
     },
-    loadingRow: {
+    title: {
+        fontSize: 28,
+        fontWeight: "700",
+        color: "#000",
+        marginBottom: 12,
+        textAlign: "center",
+    },
+    subtitle: {
+        fontSize: 15,
+        color: "#666",
+        textAlign: "center",
+        marginBottom: 28,
+    },
+    form: { marginBottom: 24 },
+    imagePickerWrap: {
+        alignItems: "center",
+        marginBottom: 18,
+    },
+    avatar: {
+        width: 92,
+        height: 92,
+        borderRadius: 46,
+        backgroundColor: "#ddd",
+        marginBottom: 10,
+    },
+    imageButtonsRow: {
+        flexDirection: "row",
+        gap: 10,
+    },
+    imageBtn: {
+        backgroundColor: "#111",
+        borderRadius: 8,
+        paddingVertical: 7,
+        paddingHorizontal: 12,
         flexDirection: "row",
         alignItems: "center",
+        gap: 6,
+    },
+    imageBtnText: {
+        color: "#fff",
+        fontWeight: "600",
+    },
+    errorText: {
+        color: "#d32f2f",
+        marginBottom: 12,
+        fontWeight: "600",
+    },
+    loader: { marginVertical: 12 },
+    primaryBtn: {
+        height: 52,
+        backgroundColor: "#000",
+        borderRadius: 12,
+        alignItems: "center",
+        justifyContent: "center",
         marginTop: 8,
     },
-    loadingText: {
-        marginLeft: 8,
-        color: "#333",
+    primaryBtnText: {
+        color: "#fff",
+        fontSize: 17,
+        fontWeight: "600",
     },
-    imageContainer: {
-        width: 120,
-        height: 120,
-        borderWidth: 3,
-        padding: 0,
-        justifyContent: "center",
-        borderRadius: 60,
-        borderColor: "#ddd",
-        elevation: 4,
+    divider: {
+        textAlign: "center",
+        color: "#999",
+        fontSize: 14,
         marginBottom: 16,
-        backgroundColor: "#f0f0f0",
     },
-    image: {
-        width: "100%",
-        height: "100%",
-        borderRadius: 60,
+    footer: {
+        flexDirection: "row",
+        justifyContent: "center",
+        alignItems: "center",
+        marginTop: 24,
     },
-    imagePicker: {
-        position: "absolute",
-        right: 2,
-        bottom: 2,
-        backgroundColor: "#1976d2",
-        padding: 8,
-        borderRadius: 20,
-        elevation: 6,
-    },
+    footerText: { fontSize: 15, color: "#666" },
+    signInLink: { fontSize: 15, color: "#000", fontWeight: "700" },
 });
 
 export default Register;

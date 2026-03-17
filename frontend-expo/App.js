@@ -4,22 +4,43 @@
  * - Redux: cart state (see Redux/store.js).
  * - DrawerNavigator contains the main bottom tabs (Home, Cart, Admin, User).
  */
-import { StyleSheet, Platform } from 'react-native';
-import React, { useContext, useEffect } from 'react';
-import { NavigationContainer } from '@react-navigation/native';
+import { StyleSheet, Platform, LogBox } from 'react-native';
+import React, { useContext, useEffect, useRef, useState } from 'react';
+import { NavigationContainer, createNavigationContainerRef } from '@react-navigation/native';
 import { Provider as PaperProvider } from 'react-native-paper';
-import { Provider } from 'react-redux';
+import { Provider, useDispatch, useSelector } from 'react-redux';
 import store from './Redux/store';
 import Toast from 'react-native-toast-message';
 import Auth from './Context/Store/Auth';
 import DrawerNavigator from './Navigators/DrawerNavigator';
+import AuthFlowNavigator from './Navigators/AuthFlowNavigator';
 import * as Notifications from 'expo-notifications';
-import * as Device from 'expo-device';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import baseURL from './assets/common/baseurl';
 import AuthGlobal from './Context/Store/AuthGlobal';
-
 import Constants from 'expo-constants';
+import { setCartItems } from './Redux/Actions/cartActions';
+import {
+  getStoredCartItems,
+  setStoredCartItems,
+  clearStoredCartItems,
+} from './assets/common/cartStorage';
+import { getNotificationTarget } from './assets/common/notificationRouting';
+import { getJwtToken } from './assets/common/authToken';
+
+// Resolve OAuth popup callback on web without loading expo-web-browser native module on Expo Go.
+if (Platform.OS === 'web') {
+  // eslint-disable-next-line global-require
+  const WebBrowser = require('expo-web-browser');
+  WebBrowser.maybeCompleteAuthSession();
+}
+
+if (Constants.appOwnership === 'expo') {
+  LogBox.ignoreLogs([
+    'expo-notifications: Android Push notifications (remote notifications) functionality provided by expo-notifications was removed from Expo Go',
+    '`expo-notifications` functionality is not fully supported in Expo Go',
+  ]);
+}
 
 // MUST be at module level - tells Expo how to handle notifications in the foreground
 Notifications.setNotificationHandler({
@@ -31,9 +52,48 @@ Notifications.setNotificationHandler({
   }),
 });
 
+const navigationRef = createNavigationContainerRef();
+
+function CartPersistenceBridge() {
+  const dispatch = useDispatch();
+  const cartItems = useSelector((state) => state.cartItems);
+  const [hydrated, setHydrated] = useState(false);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const hydrateCart = async () => {
+      const stored = await getStoredCartItems();
+      if (!isMounted) return;
+      dispatch(setCartItems(stored));
+      setHydrated(true);
+    };
+
+    hydrateCart();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [dispatch]);
+
+  useEffect(() => {
+    if (!hydrated) return;
+
+    if (!Array.isArray(cartItems) || cartItems.length === 0) {
+      clearStoredCartItems().catch(() => {});
+      return;
+    }
+
+    setStoredCartItems(cartItems).catch(() => {});
+  }, [cartItems, hydrated]);
+
+  return null;
+}
+
 // Inner component that can access Auth context (it's INSIDE the <Auth> provider)
 function AppInner() {
   const context = useContext(AuthGlobal);
+  const handledNotificationIds = useRef(new Set());
 
   useEffect(() => {
     if (Platform.OS === 'android') {
@@ -49,23 +109,19 @@ function AppInner() {
   useEffect(() => {
     const registerPushToken = async () => {
       try {
-        console.log('[Push] === Starting push token registration ===');
+        if (Constants.appOwnership === 'expo') {
+          // Expo Go no longer supports remote push registration on SDK 53+.
+          return;
+        }
 
         const { status: existingStatus } = await Notifications.getPermissionsAsync();
         let finalStatus = existingStatus;
-        console.log('[Push] Current permission status:', existingStatus);
         if (finalStatus !== 'granted') {
           const { status } = await Notifications.requestPermissionsAsync();
           finalStatus = status;
         }
-        if (finalStatus !== 'granted') {
-          console.log('[Push] PERMISSION DENIED:', finalStatus);
-          return;
-        }
-        console.log('[Push] Permission granted!');
+        if (finalStatus !== 'granted') return;
 
-        // Try FCM device token first (works on real APK builds)
-        // Fall back to Expo Push Token (works on Expo Go)
         let pushToken = null;
         let tokenType = 'unknown';
 
@@ -73,40 +129,27 @@ function AppInner() {
           const deviceToken = await Notifications.getDevicePushTokenAsync();
           pushToken = deviceToken?.data;
           tokenType = 'fcm';
-          console.log('[Push] Got FCM device token:', pushToken ? pushToken.substring(0, 40) + '...' : 'null');
-        } catch (fcmError) {
-          console.log('[Push] FCM token failed:', fcmError.message);
-          console.log('[Push] Trying Expo Push Token...');
+        } catch {
           try {
-            const projectId = Constants.expoConfig?.extra?.eas?.projectId
-              || Constants.manifest?.extra?.eas?.projectId
-              || '6f747b51-b33e-4c6e-9d11-89bf760ec81a';
-            console.log('[Push] Using projectId:', projectId);
+            const projectId =
+              Constants.expoConfig?.extra?.eas?.projectId ||
+              Constants.manifest?.extra?.eas?.projectId ||
+              '6f747b51-b33e-4c6e-9d11-89bf760ec81a';
             const expoToken = await Notifications.getExpoPushTokenAsync({ projectId });
             pushToken = expoToken?.data;
             tokenType = 'expo';
-            console.log('[Push] Got Expo push token:', pushToken ? pushToken.substring(0, 40) + '...' : 'null');
-          } catch (expoError) {
-            console.log('[Push] Expo token also failed:', expoError.message);
+          } catch {
             return;
           }
         }
 
-        if (!pushToken) {
-          console.log('[Push] ERROR: No push token received');
-          return;
-        }
+        if (!pushToken) return;
 
-        // Always clear old cached token to force re-registration
         await AsyncStorage.removeItem('pushToken');
 
-        const jwt = await AsyncStorage.getItem('jwt');
-        if (!jwt) {
-          console.log('[Push] No JWT found, skipping backend registration');
-          return;
-        }
+        const jwt = await getJwtToken();
+        if (!jwt) return;
 
-        console.log(`[Push] Sending ${tokenType} token to backend...`);
         const response = await fetch(`${baseURL}users/push-token`, {
           method: 'POST',
           headers: {
@@ -116,31 +159,85 @@ function AppInner() {
           body: JSON.stringify({ token: pushToken, type: tokenType }),
         });
 
-        const responseText = await response.text();
-        console.log(`[Push] Backend response (${response.status}):`, responseText);
-
         if (response.ok) {
-          console.log('[Push] === Token registered successfully! ===');
           await AsyncStorage.setItem('pushToken', pushToken);
-        } else {
-          console.log('[Push] FAILED to register token');
         }
       } catch (error) {
-        console.error('[Push] Registration error:', error.message, error.stack);
+        console.error('[Push] Registration error:', error.message);
       }
     };
 
     if (context?.stateUser?.isAuthenticated) {
-      console.log('[Push] User is authenticated, registering...');
       registerPushToken();
     }
   }, [context?.stateUser?.isAuthenticated]);
 
+  useEffect(() => {
+    const handleNotificationResponse = (response) => {
+      if (!response || !navigationRef.isReady()) return;
+
+      const notificationId = response.notification?.request?.identifier;
+      if (notificationId && handledNotificationIds.current.has(notificationId)) {
+        return;
+      }
+      if (notificationId) {
+        handledNotificationIds.current.add(notificationId);
+      }
+
+      const content = response.notification?.request?.content || {};
+      const data = content.data || {};
+      const isAdmin = context?.stateUser?.user?.isAdmin === true;
+      const target = getNotificationTarget({ data, isAdmin });
+      if (!target) return;
+
+      const notificationParams = {
+        notification: {
+          title: content.title || 'Notification',
+          body: content.body || '',
+          date: response.notification?.date || new Date().toISOString(),
+          data,
+        },
+      };
+
+      const mergedParams =
+        target.stackScreen === 'Notification Detail'
+          ? { ...target.params, ...notificationParams }
+          : target.params;
+
+      navigationRef.navigate('PeakPlay', {
+        screen: target.tab,
+        params: {
+          screen: target.stackScreen,
+          params: mergedParams,
+        },
+      });
+    };
+
+    const subscription = Notifications.addNotificationResponseReceivedListener(
+      handleNotificationResponse
+    );
+
+    Notifications.getLastNotificationResponseAsync()
+      .then((response) => {
+        if (response) {
+          handleNotificationResponse(response);
+        }
+      })
+      .catch(() => {});
+
+    return () => {
+      subscription.remove();
+    };
+  }, [context?.stateUser?.user?.isAdmin]);
+
+  const isAuthenticated = context?.stateUser?.isAuthenticated === true;
+
   return (
     <Provider store={store}>
-      <NavigationContainer>
+      <CartPersistenceBridge />
+      <NavigationContainer ref={navigationRef}>
         <PaperProvider>
-          <DrawerNavigator />
+          {isAuthenticated ? <DrawerNavigator /> : <AuthFlowNavigator />}
         </PaperProvider>
       </NavigationContainer>
       <Toast />

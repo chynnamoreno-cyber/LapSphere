@@ -13,7 +13,6 @@ import FormContainer from "../../Shared/FormContainer";
 import Input from "../../Shared/Input";
 import EasyButton from "../../Shared/StyledComponents/EasyButton";
 import Toast from "react-native-toast-message";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import baseURL from "../../assets/common/baseurl";
 import Error from "../../Shared/Error";
 import axios from "axios";
@@ -21,6 +20,7 @@ import * as ImagePicker from "expo-image-picker";
 import { useNavigation } from "@react-navigation/native";
 import mime from "mime";
 import { Ionicons } from "@expo/vector-icons";
+import { getJwtToken } from "../../assets/common/authToken";
 
 const ProductForm = (props) => {
     const [pickerValue, setPickerValue] = useState("");
@@ -61,11 +61,14 @@ const ProductForm = (props) => {
         } else {
             setItem(null);
         }
-        AsyncStorage.getItem("jwt").then((res) => setToken(res || "")).catch(() => {});
+        getJwtToken().then((res) => setToken(res || "")).catch(() => {});
         axios.get(`${baseURL}categories`).then((res) => setCategories(res.data)).catch(() => alert("Error loading categories"));
         if (Platform.OS !== "web") {
+            ImagePicker.requestMediaLibraryPermissionsAsync().then(({ status }) => {
+                if (status !== "granted") alert("Media library permission needed.");
+            });
             ImagePicker.requestCameraPermissionsAsync().then(({ status }) => {
-                if (status !== "granted") alert("Camera roll permission needed.");
+                if (status !== "granted") alert("Camera permission needed.");
             });
         }
         return () => setCategories([]);
@@ -78,6 +81,21 @@ const ProductForm = (props) => {
             aspect: [4, 3],
             quality: 1,
         });
+        if (!result.canceled) {
+            const uri = result.assets[0].uri;
+            setMainImage(uri);
+            setImage(uri);
+            setImagePicked(true);
+        }
+    };
+
+    const takePhoto = async () => {
+        const result = await ImagePicker.launchCameraAsync({
+            allowsEditing: true,
+            aspect: [4, 3],
+            quality: 1,
+        });
+
         if (!result.canceled) {
             const uri = result.assets[0].uri;
             setMainImage(uri);
@@ -142,8 +160,15 @@ const ProductForm = (props) => {
         <FormContainer title={item ? "Edit Product" : "Add Product"}>
             <View style={styles.imageContainer}>
                 <Image style={styles.image} source={mainImage ? { uri: mainImage } : null} />
-                <TouchableOpacity onPress={pickImage} style={styles.imagePicker}>
-                    <Ionicons name="camera" style={{ color: "white" }} />
+            </View>
+            <View style={styles.imageActionRow}>
+                <TouchableOpacity onPress={pickImage} style={styles.imageActionBtn}>
+                    <Ionicons name="images-outline" size={18} color="white" />
+                    <Text style={styles.imageActionText}>Gallery</Text>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={takePhoto} style={styles.imageActionBtn}>
+                    <Ionicons name="camera-outline" size={18} color="white" />
+                    <Text style={styles.imageActionText}>Camera</Text>
                 </TouchableOpacity>
             </View>
             <View style={styles.label}><Text style={styles.labelText}>Brand</Text></View>
@@ -194,14 +219,26 @@ const styles = StyleSheet.create({
         elevation: 10,
     },
     image: { width: "100%", height: "100%", borderRadius: 100 },
-    imagePicker: {
-        position: "absolute",
-        right: 5,
-        bottom: 5,
-        backgroundColor: "grey",
-        padding: 8,
-        borderRadius: 100,
-        elevation: 20,
+    imageActionRow: {
+        width: "80%",
+        flexDirection: "row",
+        justifyContent: "center",
+        marginTop: 12,
+        marginBottom: 4,
+        gap: 12,
+    },
+    imageActionBtn: {
+        backgroundColor: "#555",
+        borderRadius: 10,
+        paddingVertical: 8,
+        paddingHorizontal: 12,
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 6,
+    },
+    imageActionText: {
+        color: "white",
+        fontWeight: "600",
     },
 });
 

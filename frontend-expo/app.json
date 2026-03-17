@@ -2,6 +2,11 @@
   "expo": {
     "name": "frontend-expo",
     "slug": "frontend-expo",
+    "scheme": [
+      "com.peakplay.itcp239.dev",
+      "com.googleusercontent.apps.1061265006776-8k5hac1d8h9flh8l9pripeh18n9m1fsg"
+    ],
+    "owner": "edilynplay",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -16,7 +21,7 @@
       "supportsTablet": true
     },
     "android": {
-      "package": "com.peakplay.itcp239",
+      "package": "com.peakplay.itcp239.dev",
       "googleServicesFile": "./google-services.json",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
@@ -31,6 +36,11 @@
       "eas": {
         "projectId": "6f747b51-b33e-4c6e-9d11-89bf760ec81a"
       }
-    }
+    },
+    "plugins": [
+      "expo-sqlite",
+      "expo-secure-store",
+      "expo-web-browser"
+    ]
   }
 }

@@ -1,10 +1,24 @@
-import React, { useState, useContext, useEffect } from "react";
-import { View, Text, StyleSheet, Button, ActivityIndicator } from "react-native";
+/**
+ * Login screen: Welcome Back design. Email/password + social (Google).
+ * Connected to backend users/login and users/auth/google
+ */
+import React, { useState, useContext } from "react";
+import {
+    View,
+    Text,
+    StyleSheet,
+    TouchableOpacity,
+    ActivityIndicator,
+    ScrollView,
+    KeyboardAvoidingView,
+    Platform,
+} from "react-native";
 import { useNavigation } from "@react-navigation/native";
-import FormContainer from "../../Shared/FormContainer";
+import { Ionicons } from "@expo/vector-icons";
 import AuthGlobal from "../../Context/Store/AuthGlobal";
 import { loginUser } from "../../Context/Actions/Auth.actions";
 import Input from "../../Shared/Input";
+import SocialLoginButtons from "../../Shared/SocialLoginButtons";
 
 const Login = () => {
     const context = useContext(AuthGlobal);
@@ -15,90 +29,169 @@ const Login = () => {
     const [isSubmitting, setIsSubmitting] = useState(false);
 
     const handleSubmit = () => {
-        const user = { email, password };
         if (email === "" || password === "") {
             setError("Please fill in your credentials");
-        } else {
-            setError("");
-            setIsSubmitting(true);
-            loginUser(user, context.dispatch).finally(() => setIsSubmitting(false));
+            return;
         }
+        setError("");
+        setIsSubmitting(true);
+        loginUser({ email, password }, context.dispatch).finally(() =>
+            setIsSubmitting(false)
+        );
     };
 
-    useEffect(() => {
-        if (context.stateUser.isAuthenticated === true) {
-            navigation.navigate("User Profile");
-        }
-    }, [context.stateUser.isAuthenticated]);
-
     return (
-        <FormContainer title="Login">
-            <Input
-                label="Email"
-                placeholder="Enter your email"
-                name="email"
-                id="email"
-                value={email}
-                onChangeText={(text) => setEmail(text.toLowerCase())}
-                autoCapitalize="none"
-                keyboardType="email-address"
-            />
-            <Input
-                label="Password"
-                placeholder="Enter your password"
-                name="password"
-                id="password"
-                secureTextEntry={true}
-                showToggle={true}
-                value={password}
-                onChangeText={(text) => setPassword(text)}
-            />
-            <View style={styles.buttonGroup}>
-                {error ? <Text style={styles.errorText}>{error}</Text> : null}
-                {isSubmitting ? (
-                    <View style={styles.loadingRow}>
-                        <ActivityIndicator size="small" />
-                        <Text style={styles.loadingText}>Signing in...</Text>
-                    </View>
-                ) : null}
-                <Button title="Login" onPress={() => handleSubmit()} disabled={isSubmitting} />
-            </View>
-            <View style={styles.buttonGroup}>
-                <Text style={styles.middleText}>Don't have an account yet?</Text>
-                <Button
-                    title="Register"
-                    onPress={() => navigation.navigate("Register")}
+        <KeyboardAvoidingView
+            style={styles.container}
+            behavior={Platform.OS === "ios" ? "padding" : undefined}
+        >
+            <ScrollView
+                contentContainerStyle={styles.scroll}
+                keyboardShouldPersistTaps="handled"
+                showsVerticalScrollIndicator={false}
+            >
+                <View style={styles.logoBox}>
+                    <Ionicons name="bag-handle-outline" size={44} color="#fff" />
+                </View>
+                <Text style={styles.brandName}>PeakPlay</Text>
+                <Text style={styles.title}>Welcome Back</Text>
+                <Text style={styles.subtitle}>
+                Log in to your PeakPlay account using email or social networks
+                </Text>
+
+                <SocialLoginButtons
+                    dispatch={context.dispatch}
+                    variant="outline"
                 />
-            </View>
-        </FormContainer>
+
+                <Text style={styles.divider}>Or continue with social account</Text>
+
+                <View style={styles.form}>
+                    <Input
+                        placeholder="Email"
+                        value={email}
+                        onChangeText={(t) => setEmail(t.toLowerCase())}
+                        autoCapitalize="none"
+                        keyboardType="email-address"
+                    />
+                    <Input
+                        placeholder="Password"
+                        value={password}
+                        onChangeText={setPassword}
+                        secureTextEntry
+                        showToggle
+                    />
+                    <TouchableOpacity style={styles.forgetLink}>
+                        <Text style={styles.forgetText}>Forget Password?</Text>
+                    </TouchableOpacity>
+
+                    {error ? (
+                        <Text style={styles.errorText}>{error}</Text>
+                    ) : null}
+                    {isSubmitting ? (
+                        <ActivityIndicator
+                            size="small"
+                            color="#000"
+                            style={styles.loader}
+                        />
+                    ) : null}
+
+                    <TouchableOpacity
+                        style={styles.primaryBtn}
+                        onPress={handleSubmit}
+                        disabled={isSubmitting}
+                    >
+                        <Text style={styles.primaryBtnText}>Sign In</Text>
+                    </TouchableOpacity>
+                </View>
+
+                <View style={styles.footer}>
+                    <Text style={styles.footerText}>
+                        Didn&apos;t have an account?{" "}
+                    </Text>
+                    <TouchableOpacity
+                        onPress={() => navigation.navigate("Register")}
+                    >
+                        <Text style={styles.registerLink}>Register</Text>
+                    </TouchableOpacity>
+                </View>
+            </ScrollView>
+        </KeyboardAvoidingView>
     );
 };
 
 const styles = StyleSheet.create({
-    buttonGroup: {
-        width: "80%",
-        alignItems: "center",
+    container: { flex: 1, backgroundColor: "#fff" },
+    scroll: {
+        flexGrow: 1,
+        paddingHorizontal: 24,
+        paddingTop: 48,
+        paddingBottom: 40,
     },
-    loadingRow: {
-        flexDirection: "row",
+    logoBox: {
+        width: 72,
+        height: 72,
+        borderRadius: 16,
+        backgroundColor: "#000",
         alignItems: "center",
+        justifyContent: "center",
+        alignSelf: "center",
+        marginBottom: 12,
+    },
+    brandName: {
+        fontSize: 24,
+        fontWeight: "700",
+        color: "#000",
+        textAlign: "center",
+        marginBottom: 24,
+    },
+    title: {
+        fontSize: 28,
+        fontWeight: "700",
+        color: "#000",
         marginBottom: 8,
     },
-    loadingText: {
-        marginLeft: 8,
-        color: "#333",
+    subtitle: {
+        fontSize: 15,
+        color: "#666",
+        marginBottom: 24,
     },
+    divider: {
+        textAlign: "center",
+        color: "#999",
+        fontSize: 14,
+        marginVertical: 20,
+    },
+    form: { marginTop: 8 },
+    forgetLink: { alignSelf: "flex-end", marginBottom: 16 },
+    forgetText: { fontSize: 14, color: "#000", fontWeight: "600" },
     errorText: {
         color: "#d32f2f",
-        marginBottom: 8,
+        marginBottom: 12,
         fontWeight: "600",
     },
-    middleText: {
-        marginBottom: 20,
-        alignSelf: "center",
-        color: "#333",
-        fontSize: 14,
+    loader: { marginVertical: 12 },
+    primaryBtn: {
+        height: 52,
+        backgroundColor: "#000",
+        borderRadius: 12,
+        alignItems: "center",
+        justifyContent: "center",
+        marginTop: 8,
     },
+    primaryBtnText: {
+        color: "#fff",
+        fontSize: 17,
+        fontWeight: "600",
+    },
+    footer: {
+        flexDirection: "row",
+        justifyContent: "center",
+        alignItems: "center",
+        marginTop: 32,
+    },
+    footerText: { fontSize: 15, color: "#666" },
+    registerLink: { fontSize: 15, color: "#000", fontWeight: "700" },
 });
 
 export default Login;

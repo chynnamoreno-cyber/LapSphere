@@ -1,40 +1,35 @@
-import React, { useCallback, useState } from "react";
+import React, { useCallback } from "react";
 import { View, FlatList } from "react-native";
-import axios from "axios";
-import baseURL from "../../assets/common/baseurl";
 import { useFocusEffect } from "@react-navigation/native";
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useDispatch, useSelector } from "react-redux";
 import OrderCard from "../../Shared/OrderCard";
+import { fetchOrders } from "../../Redux/Actions/orderActions";
 
 const Orders = () => {
-    const [orderList, setOrderList] = useState([]);
+    const dispatch = useDispatch();
+    const orderList = useSelector((state) => state.orders?.list || []);
 
     useFocusEffect(
         useCallback(() => {
-            let isMounted = true;
-            AsyncStorage.getItem("jwt")
-                .then((res) => {
-                    const token = res || "";
-                    return axios.get(`${baseURL}orders`, {
-                        headers: { Authorization: `Bearer ${token}` },
-                    });
-                })
-                .then((res) => {
-                    if (isMounted) setOrderList(res.data || []);
-                })
-                .catch((error) => console.log(error));
+            dispatch(fetchOrders());
             return () => {
-                isMounted = false;
-                setOrderList([]);
+                // keep orders in store for quick back navigation
             };
-        }, [])
+        }, [dispatch])
     );
 
     return (
         <View>
             <FlatList
                 data={orderList}
-                renderItem={({ item }) => <OrderCard item={item} update={true} isAdmin={true} />}
+                renderItem={({ item }) => (
+                    <OrderCard
+                        item={item}
+                        update={true}
+                        isAdmin={true}
+                        onStatusUpdated={() => dispatch(fetchOrders())}
+                    />
+                )}
                 keyExtractor={(item) => String(item.id || item._id)}
             />
         </View>

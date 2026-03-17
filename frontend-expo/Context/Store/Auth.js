@@ -4,11 +4,11 @@
  */
 import React, { useEffect, useReducer, useState } from "react";
 import { jwtDecode } from "jwt-decode";
-import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import authReducer from "../Reducers/Auth.reducer";
 import { setCurrentUser } from "../Actions/Auth.actions";
 import AuthGlobal from './AuthGlobal';
+import { getJwtToken, removeJwtToken } from "../../assets/common/authToken";
 
 const Auth = props => {
     const [stateUser, dispatch] = useReducer(authReducer, {
@@ -19,12 +19,17 @@ const Auth = props => {
 
     useEffect(() => {
         setShowChild(true);
-        if (AsyncStorage.jwt) {
-            const decoded = AsyncStorage.jwt ? AsyncStorage.jwt : "";
-            if (setShowChild) {
-                dispatch(setCurrentUser(jwtDecode(decoded)));
+        // [Unit 2] Restore auth on app start - load JWT from storage to keep user logged in
+        getJwtToken().then((token) => {
+            if (token) {
+                try {
+                    const decoded = jwtDecode(token);
+                    dispatch(setCurrentUser(decoded));
+                } catch (_e) {
+                    removeJwtToken();
+                }
             }
-        }
+        }).catch(() => {});
         return () => setShowChild(false);
     }, []);
 

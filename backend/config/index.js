@@ -12,6 +12,11 @@ const config = {
   uploadDir: process.env.UPLOAD_DIR || "uploads",
   maxFileSizeMb: Number(process.env.MAX_FILE_SIZE_MB || 5),
   fcmServiceAccountPath: process.env.FCM_SERVICE_ACCOUNT_PATH || "",
+  // [MP2] Social login - Google OAuth. Set GOOGLE_CLIENT_ID or GOOGLE_CLIENT_IDS (comma-separated) in .env.
+  googleClientIds: (process.env.GOOGLE_CLIENT_IDS || process.env.GOOGLE_CLIENT_ID || "")
+    .split(",")
+    .map((id) => id.trim())
+    .filter(Boolean),
 };
 
 const missing = requiredKeys.filter((key) => !process.env[key]);

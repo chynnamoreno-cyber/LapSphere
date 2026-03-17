@@ -2,6 +2,7 @@ const express = require("express");
 const mongoose = require("mongoose");
 const authJwt = require("../middleware/authJwt");
 const Order = require("../models/Order");
+const Review = require("../models/Review");
 const User = require("../models/User");
 const { sendToTokens } = require("../services/notifications");
 
@@ -21,6 +22,40 @@ function normalizeStatus(value) {
   if (lowered === "2") return STATUS.SHIPPED;
   if (lowered === "1") return STATUS.DELIVERED;
   return lowered;
+}
+
+async function attachReviewFlagsForUserOrders(userId, orders) {
+  if (!Array.isArray(orders) || orders.length === 0) return orders;
+
+  const orderIds = orders.map((order) => order._id).filter(Boolean);
+  const existingReviews = await Review.find(
+    { user: userId, order: { $in: orderIds } },
+    "order product"
+  ).lean();
+
+  const reviewSet = new Set(
+    existingReviews.map((review) => `${review.order.toString()}:${review.product.toString()}`)
+  );
+
+  return orders.map((order) => {
+    const delivered = normalizeStatus(order.status) === STATUS.DELIVERED;
+    const orderId = order._id?.toString();
+    const enrichedItems = (order.orderItems || []).map((item) => {
+      const productId = item.product?.toString?.() || item.product;
+      const key = `${orderId}:${productId}`;
+      const hasUserReview = reviewSet.has(key);
+      return {
+        ...item,
+        hasUserReview,
+        canLeaveReview: delivered && !hasUserReview,
+      };
+    });
+
+    return {
+      ...order,
+      orderItems: enrichedItems,
+    };
+  });
 }
 
 // POST /orders — authenticated user places an order
@@ -99,7 +134,7 @@ router.post("/", authJwt, async (req, res) => {
     await sendToTokens(adminTokens, {
       title: "New order placed",
       body: `Order ${order.id} has been placed.`,
-      data: { orderId: order.id },
+      data: { orderId: order.id, route: "admin-orders" },
     });
 
     return res.status(201).json(order);
@@ -113,9 +148,15 @@ router.post("/", authJwt, async (req, res) => {
 router.get("/", authJwt, async (req, res) => {
   try {
     const filter = req.user?.isAdmin ? {} : { user: req.user.userId };
-    const orders = await Order.find(filter)
+    const orderDocs = await Order.find(filter)
       .populate("user", "id name email")
       .sort({ dateOrdered: -1 });
+
+    let orders = orderDocs.map((order) => order.toObject());
+    if (!req.user?.isAdmin) {
+      orders = await attachReviewFlagsForUserOrders(req.user.userId, orders);
+    }
+
     return res.status(200).json(orders);
   } catch (_error) {
     return res.status(500).json({ message: "Failed to load orders" });
@@ -133,7 +174,13 @@ router.get("/:id", authJwt, async (req, res) => {
       return res.status(403).json({ message: "Forbidden" });
     }
 
-    return res.status(200).json(order);
+    let orderPayload = order.toObject();
+    if (!req.user?.isAdmin) {
+      const [enriched] = await attachReviewFlagsForUserOrders(req.user.userId, [orderPayload]);
+      orderPayload = enriched;
+    }
+
+    return res.status(200).json(orderPayload);
   } catch (_error) {
     return res.status(500).json({ message: "Failed to load order" });
   }
@@ -207,7 +254,7 @@ router.put("/:id", authJwt, async (req, res) => {
       await sendToTokens([{ token: recipient.pushToken, type: recipient.pushTokenType || "fcm" }], {
         title: "Order status updated",
         body: `Order ${updated.id} is now ${desiredStatus}.`,
-        data: { orderId: updated.id, status: desiredStatus },
+        data: { orderId: updated.id, status: desiredStatus, route: "order-details" },
       });
     }
 

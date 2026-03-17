@@ -1,0 +1,169 @@
+ ITCP239 Programming Language - Design and Implementation REACT Native Mobile app
+ 
+ mp1 Product/service CRUD 20 pts
+    Product/service CRUD. upload a photo or use a camera. 
+ 
+ mp2 User functions 20pts 
+    user login/registration, update user profile. upload or take a photo. 15pts
+    google/facebook login, 20pts
+ 
+ mp3 Review Ratings 20 pts
+    users can leave a review/rating on verified purchased products/services. 
+    users can update their own reviews/ratings.
+
+mp4 SQLite Cart 
+   save cart contents on asyncsorage or secure storage before checkout. get items when app is opened. delete contents after checkout. 12pts
+   save cart contents on SQLite before checkout. get items when app is opened and delete contents after checkout. 20
+
+ term test transaction 35pts
+    completed transaction. 10pts
+    update status of transaction. 5pts
+    send a push notification after the update. 10pts
+    click on the notification to view the order details 10pts
+
+quiz 1 search/filters 15pts
+    search function. filter products/service search results by price range 10pts
+    search function. filter products/service search results by category and price range 15pts
+
+quiz 2 notifications 
+    send push notifications about product promotions/discount. 10pts
+     view the details of the notification. 5pts
+
+quiz 3 apply REDUX on  order, product, and review functions 15pts
+
+unit 1 user interface (with drawer) design 20pts 
+
+unit 2 node backend functions, jwt tokens stored on SQLite or expo secure store.
+    notification push token saved on user model. update/remove stale tokens 20pts
+
+Term Test Lec. 
+    App complexity and added features 10pts.
+    program contribution 10pts
+
+
+full credit will be given if you answer correctly. 
+a deduction of two points will be applied on all machine problems for each unexcused absence.
+be on time.
+if you have a term test on other subjects that coincide with the time of the project presentation, take the exam first then come back later for the presentation.
+
+
+=============================
+STATUS TRACKER (PROJECT AUDIT)
+=============================
+
+Legend:
+[DONE] implemented and working in codebase
+[PARTIAL] partially implemented, missing required behavior/details
+[NOT DONE] not implemented yet
+[ON HOLD] intentionally paused for now
+
+mp1 Product/service CRUD 20 pts
+[DONE] Product/service CRUD
+[DONE] Product image upload implemented
+[DONE] Camera capture flow in admin product form implemented
+
+mp2 User functions 20 pts
+[DONE] User login (email/password)
+[DONE] User registration (email/password)
+[DONE] User profile update
+[DONE] Upload/take photo for registration and profile image implemented
+[ON HOLD] Google/Facebook login (Google flow unstable right now, Facebook removed by decision)
+
+mp3 Review Ratings 20 pts
+[DONE] User review/rating system API + UI flow implemented
+[DONE] Verified-purchase check before reviewing (delivered orders only)
+[DONE] Update own review/rating flow (cannot edit others)
+[DONE] One review per product per delivered order rule implemented
+[DONE] Review media upload (max 3 images) + display in product details
+[DONE] Product detail review filters (with media, date, star rating)
+
+mp4 SQLite Cart
+[DONE] Cart exists in Redux and checkout clears cart
+[DONE] Persist cart on app open/close using SQLite
+[DONE] Load cart from SQLite when app starts
+[DONE] Remove persisted cart after successful checkout
+
+term test transaction 35pts
+[DONE] Completed transaction flow (checkout -> confirm -> order create)
+[DONE] Update status of transaction
+[DONE] Push notification after status update
+[DONE] Tap notification to open order details screen
+
+quiz 1 search/filters 15pts
+[DONE] Search function
+[DONE] Category filter
+[DONE] Price range filter
+[DONE] Combined category + price range filter
+
+quiz 2 notifications
+[DONE] Promo/discount push notification broadcast (broadcast-only messaging)
+[DONE] Notification center list exists (user inbox page)
+[DONE] Dedicated notification detail/open behavior (push tap + list item tap routing)
+[REMINDER] Future enhancement: add auto-discount engine (rule-based product/category discounts with schedule and computed effective price)
+
+quiz 3 apply REDUX on order, product, and review functions 15pts
+[DONE] Redux implemented for cart state
+[DONE] Redux for product state
+[DONE] Redux for order state
+[DONE] Redux for review state
+
+unit 1 user interface (with drawer) design 20pts
+[DONE] Drawer-based UI/navigation implemented
+
+unit 2 node backend functions, jwt tokens stored on SQLite or expo secure store.
+[DONE] Node backend APIs + JWT auth middleware
+[DONE] JWT stored using Expo Secure Store (with legacy AsyncStorage migration)
+[DONE] Notification push token saved on user model
+[DONE] Update/remove stale push tokens handling (auto-clear invalid Expo/FCM tokens)
+
+
+===========================================
+RECOMMENDED WORKFLOW (NEXT DEVELOPMENT STEPS)
+===========================================
+
+Goal: maximize points quickly while reducing risk.
+
+PHASE 1 - HIGH IMPACT FEATURES (DO FIRST)
+1) Implement MP3 Reviews/Ratings fully
+    - Add Review model and routes in backend
+    - Allow review submit/update only for verified purchased users
+    - Display reviews in product details
+
+2) Implement MP4 SQLite Cart persistence
+    - Create cart storage service with expo-sqlite
+    - Save cart on add/remove/update
+    - Hydrate cart from SQLite on app startup
+    - Clear SQLite cart on successful checkout
+
+3) Implement Quiz 1 advanced filters
+    - Add min/max price UI controls
+    - Apply combined category + price filtering in ProductContainer
+
+PHASE 2 - NOTIFICATION COMPLETION
+4) Implement notification tap -> order details
+    - Add notification response listener in App root
+    - Navigate to My Orders / specific order using payload orderId
+
+5) Implement promo broadcast
+    - Add admin backend route for promo notification sending
+    - Add admin screen action/button to trigger promo push
+
+PHASE 3 - ARCHITECTURE + POLISH
+6) Extend Redux coverage to products/orders/reviews
+    - Create reducers/actions/selectors for each domain
+
+7) Migrate JWT storage to Expo Secure Store
+    - Replace AsyncStorage JWT usage in Auth actions/store
+
+8) Implement user photo capture/upload in Register/Profile
+    - Add image picker/camera flow for user photo requirement
+
+PHASE 4 - SOCIAL LOGIN (RETURN LATER)
+9) Revisit Google sign-in after core grading features are stable
+    - Keep as optional final enhancement
+    - Test per-platform (Expo Go vs web vs APK) with exact OAuth redirects
+
+Suggested execution style:
+- Build one feature at a time end-to-end (backend + frontend + manual test)
+- Update this file status immediately after each completed feature
+- Keep commits small and feature-scoped

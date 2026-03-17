@@ -1,15 +1,15 @@
-import React, { useCallback, useContext, useState } from "react";
+import React, { useCallback, useContext } from "react";
 import { View, FlatList, Text, StyleSheet } from "react-native";
 import { useFocusEffect, useNavigation } from "@react-navigation/native";
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import axios from "axios";
-import baseURL from "../../assets/common/baseurl";
+import { useDispatch, useSelector } from "react-redux";
 import AuthGlobal from "../../Context/Store/AuthGlobal";
 import OrderCard from "../../Shared/OrderCard";
+import { fetchOrders } from "../../Redux/Actions/orderActions";
 
 const MyOrders = () => {
-    const [orderList, setOrderList] = useState([]);
-    const [loading, setLoading] = useState(true);
+    const dispatch = useDispatch();
+    const orderList = useSelector((state) => state.orders?.list || []);
+    const loading = useSelector((state) => state.orders?.loading === true);
     const context = useContext(AuthGlobal);
     const navigation = useNavigation();
 
@@ -22,28 +22,12 @@ const MyOrders = () => {
                 return () => {};
             }
 
-            AsyncStorage.getItem("jwt")
-                .then((res) =>
-                    axios.get(`${baseURL}orders`, {
-                        headers: { Authorization: `Bearer ${res || ""}` },
-                    })
-                )
-                .then((res) => {
-                    if (isMounted) {
-                        setOrderList(res.data || []);
-                        setLoading(false);
-                    }
-                })
-                .catch(() => {
-                    if (isMounted) setLoading(false);
-                });
+            dispatch(fetchOrders());
 
             return () => {
                 isMounted = false;
-                setOrderList([]);
-                setLoading(true);
             };
-        }, [context.stateUser.isAuthenticated, navigation])
+        }, [context.stateUser.isAuthenticated, navigation, dispatch])
     );
 
     if (loading) {
@@ -66,7 +50,14 @@ const MyOrders = () => {
         <View style={styles.container}>
             <FlatList
                 data={orderList}
-                renderItem={({ item }) => <OrderCard item={item} update={true} isAdmin={false} />}
+                renderItem={({ item }) => (
+                    <OrderCard
+                        item={item}
+                        update={true}
+                        isAdmin={false}
+                        onStatusUpdated={() => dispatch(fetchOrders())}
+                    />
+                )}
                 keyExtractor={(item) => String(item.id || item._id)}
             />
         </View>

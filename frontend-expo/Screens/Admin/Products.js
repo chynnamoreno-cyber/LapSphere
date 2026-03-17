@@ -14,8 +14,8 @@ import { Searchbar } from "react-native-paper";
 import ListItem from "./ListItem";
 import axios from "axios";
 import baseURL from "../../assets/common/baseurl";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import EasyButton from "../../Shared/StyledComponents/EasyButton";
+import { getJwtToken } from "../../assets/common/authToken";
 
 var { height, width } = Dimensions.get("window");
 
@@ -85,7 +85,7 @@ const Products = () => {
 
     useFocusEffect(
         useCallback(() => {
-            AsyncStorage.getItem("jwt")
+            getJwtToken()
                 .then((res) => setToken(res || ""))
                 .catch((error) => console.log(error));
             axios
@@ -131,6 +131,14 @@ const Products = () => {
                 >
                     <Ionicons name="warning-outline" size={18} color="white" />
                     <Text style={styles.buttonText}>Stock Alerts</Text>
+                </EasyButton>
+                <EasyButton
+                    secondary
+                    medium
+                    onPress={() => navigation.navigate("Promo Broadcast")}
+                >
+                    <Ionicons name="megaphone-outline" size={18} color="white" />
+                    <Text style={styles.buttonText}>Promo</Text>
                 </EasyButton>
                 <EasyButton
                     secondary

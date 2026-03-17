@@ -1,14 +1,16 @@
 import React, { useContext, useState, useCallback } from "react";
-import { View, Text, ScrollView, Button, StyleSheet, TouchableOpacity } from "react-native";
+import { View, Text, ScrollView, Button, StyleSheet, TouchableOpacity, Image } from "react-native";
 import { useFocusEffect, useNavigation } from "@react-navigation/native";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import axios from "axios";
+import * as ImagePicker from "expo-image-picker";
+import mime from "mime";
 import baseURL from "../../assets/common/baseurl";
 import AuthGlobal from "../../Context/Store/AuthGlobal";
 import { logoutUser } from "../../Context/Actions/Auth.actions";
 import Input from "../../Shared/Input";
 import Toast from "react-native-toast-message";
 import AddressMapPicker from "../../Shared/AddressMapPicker";
+import { getJwtToken } from "../../assets/common/authToken";
 
 const UserProfile = () => {
     const context = useContext(AuthGlobal);
@@ -21,6 +23,8 @@ const UserProfile = () => {
     const [deliveryZip, setDeliveryZip] = useState("");
     const [deliveryCountry, setDeliveryCountry] = useState("Philippines");
     const [deliveryLocation, setDeliveryLocation] = useState(null);
+    const [profileImage, setProfileImage] = useState("");
+    const [newProfileImage, setNewProfileImage] = useState("");
     const [mapVisible, setMapVisible] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
     const navigation = useNavigation();
@@ -46,6 +50,8 @@ const UserProfile = () => {
         setDeliveryCity(profile?.deliveryCity || "");
         setDeliveryZip(profile?.deliveryZip || "");
         setDeliveryCountry(profile?.deliveryCountry || "Philippines");
+        setProfileImage(profile?.image || "");
+        setNewProfileImage("");
         if (
             Number.isFinite(profile?.deliveryLocation?.latitude)
             && Number.isFinite(profile?.deliveryLocation?.longitude)
@@ -68,7 +74,7 @@ const UserProfile = () => {
                 navigation.navigate("User", { screen: "Login" });
                 return;
             }
-            AsyncStorage.getItem("jwt")
+            getJwtToken()
                 .then((res) => {
                     axios
                         .get(`${baseURL}users/${context.stateUser.user.userId}`, {
@@ -96,14 +102,65 @@ const UserProfile = () => {
         });
     };
 
+    const pickProfileFromGallery = async () => {
+        const result = await ImagePicker.launchImageLibraryAsync({
+            mediaTypes: ["images"],
+            allowsEditing: true,
+            aspect: [1, 1],
+            quality: 0.9,
+        });
+        if (!result.canceled) {
+            const uri = result.assets[0].uri;
+            setNewProfileImage(uri);
+            setProfileImage(uri);
+        }
+    };
+
+    const takeProfilePhoto = async () => {
+        const result = await ImagePicker.launchCameraAsync({
+            allowsEditing: true,
+            aspect: [1, 1],
+            quality: 0.9,
+        });
+        if (!result.canceled) {
+            const uri = result.assets[0].uri;
+            setNewProfileImage(uri);
+            setProfileImage(uri);
+        }
+    };
+
+    const uploadProfilePhoto = async (jwt) => {
+        if (!newProfileImage) return null;
+
+        const fileUri = newProfileImage.startsWith("file://") ? newProfileImage : `file://${newProfileImage}`;
+        const formData = new FormData();
+        formData.append("image", {
+            uri: fileUri,
+            type: mime.getType(fileUri) || "image/jpeg",
+            name: fileUri.split("/").pop() || `profile-${Date.now()}.jpg`,
+        });
+
+        const response = await axios.put(`${baseURL}users/profile/image`, formData, {
+            headers: {
+                "Content-Type": "multipart/form-data",
+                Authorization: `Bearer ${jwt}`,
+            },
+        });
+
+        setNewProfileImage("");
+        return response.data;
+    };
+
     const saveProfile = async () => {
         try {
             setIsSaving(true);
-            const jwt = await AsyncStorage.getItem("jwt");
+            const jwt = await getJwtToken();
             if (!jwt) {
                 Toast.show({ topOffset: 60, type: "error", text1: "Session expired", text2: "Please login again" });
                 return;
             }
+
+            await uploadProfilePhoto(jwt);
 
             const payload = {
                 name,
@@ -155,6 +212,22 @@ const UserProfile = () => {
                     <Text style={styles.emailText}>
                         {userProfile ? userProfile.email : ""}
                     </Text>
+                    <Image
+                        source={{
+                            uri:
+                                profileImage
+                                || "https://cdn.pixabay.com/photo/2015/10/05/22/37/blank-profile-picture-973460_960_720.png",
+                        }}
+                        style={styles.avatar}
+                    />
+                    <View style={styles.imageButtonsRow}>
+                        <TouchableOpacity style={styles.imageBtn} onPress={pickProfileFromGallery}>
+                            <Text style={styles.imageBtnText}>Gallery</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity style={styles.imageBtn} onPress={takeProfilePhoto}>
+                            <Text style={styles.imageBtnText}>Camera</Text>
+                        </TouchableOpacity>
+                    </View>
                     <Input label="Name" placeholder="Your name" value={name} onChangeText={setName} />
                     <Input label="Phone" placeholder="Your phone number" value={phone} keyboardType="numeric" onChangeText={setPhone} />
 
@@ -176,7 +249,6 @@ const UserProfile = () => {
                         title="Sign Out"
                         color="#d32f2f"
                         onPress={() => {
-                            AsyncStorage.removeItem("jwt");
                             logoutUser(context.dispatch);
                         }}
                     />
@@ -266,6 +338,28 @@ const styles = StyleSheet.create({
         fontSize: 15,
         color: "#555",
         marginBottom: 4,
+    },
+    avatar: {
+        width: 96,
+        height: 96,
+        borderRadius: 48,
+        backgroundColor: "#ddd",
+        marginBottom: 10,
+    },
+    imageButtonsRow: {
+        flexDirection: "row",
+        gap: 10,
+        marginBottom: 8,
+    },
+    imageBtn: {
+        backgroundColor: "#111",
+        borderRadius: 8,
+        paddingVertical: 8,
+        paddingHorizontal: 12,
+    },
+    imageBtnText: {
+        color: "#fff",
+        fontWeight: "600",
     },
 });
 

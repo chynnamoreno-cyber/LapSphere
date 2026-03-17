@@ -1,13 +1,13 @@
-import React, { useEffect, useState } from "react";
-import { View, Text, StyleSheet, ActivityIndicator } from "react-native";
+import React, { useEffect, useMemo, useState } from "react";
+import { View, Text, StyleSheet, ActivityIndicator, TouchableOpacity } from "react-native";
 import TrafficLight from "./StyledComponents/TrafficLight";
 import EasyButton from "./StyledComponents/EasyButton";
 import Toast from "react-native-toast-message";
 import { Picker } from "@react-native-picker/picker";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import axios from "axios";
 import baseURL from "../assets/common/baseurl";
 import { useNavigation } from "@react-navigation/native";
+import { getJwtToken } from "../assets/common/authToken";
 
 const STATUS = {
     PENDING: "pending",
@@ -39,18 +39,34 @@ const normalizeStatus = (value) => {
     return lowered;
 };
 
-const OrderCard = ({ item, update, isAdmin = false }) => {
+const OrderCard = ({ item, update, isAdmin = false, onStatusUpdated }) => {
     const [orderStatus, setOrderStatus] = useState("");
     const [statusText, setStatusText] = useState("");
-    const [statusChange, setStatusChange] = useState(normalizeStatus(item.status));
+    const [statusChange, setStatusChange] = useState("");
     const [cardColor, setCardColor] = useState("");
     const [isUpdating, setIsUpdating] = useState(false);
     const navigation = useNavigation();
 
+    const currentStatus = normalizeStatus(item.status);
+    const transitions = isAdmin ? adminTransitions : userTransitions;
+    const allowed = useMemo(() => transitions[currentStatus] || [], [transitions, currentStatus]);
+
+    useEffect(() => {
+        if (!update) return;
+        if (allowed.length === 0) {
+            setStatusChange("");
+            return;
+        }
+
+        // Keep picker state valid: default to the first allowed transition.
+        setStatusChange((prev) => (allowed.includes(prev) ? prev : allowed[0]));
+    }, [allowed, update]);
+
     const updateOrder = () => {
         if (isUpdating) return;
+        if (!statusChange) return;
         setIsUpdating(true);
-        AsyncStorage.getItem("jwt")
+        getJwtToken()
             .then((res) => {
                 const token = res || "";
                 const config = {
@@ -70,15 +86,21 @@ const OrderCard = ({ item, update, isAdmin = false }) => {
                         text1: "Order Updated",
                         text2: "",
                     });
-                    setTimeout(() => navigation.navigate("Products"), 500);
+                    if (typeof onStatusUpdated === "function") {
+                        onStatusUpdated(statusChange);
+                    }
                 }
             })
             .catch((error) => {
+                const message =
+                    error?.response?.data?.message ||
+                    error?.message ||
+                    "Please try again";
                 Toast.show({
                     topOffset: 60,
                     type: "error",
                     text1: "Something went wrong",
-                    text2: "Please try again",
+                    text2: message,
                 });
             })
             .finally(() => setIsUpdating(false));
@@ -108,11 +130,7 @@ const OrderCard = ({ item, update, isAdmin = false }) => {
             setStatusText();
             setCardColor();
         };
-    }, []);
-
-    const currentStatus = normalizeStatus(item.status);
-    const transitions = isAdmin ? adminTransitions : userTransitions;
-    const allowed = transitions[currentStatus] || [];
+    }, [item.status]);
 
     return (
         <View style={[{ backgroundColor: cardColor }, styles.container]}>
@@ -133,6 +151,49 @@ const OrderCard = ({ item, update, isAdmin = false }) => {
                     <Text>Price: </Text>
                     <Text style={styles.price}>$ {item.totalPrice}</Text>
                 </View>
+
+                {!isAdmin && Array.isArray(item.orderItems) && item.orderItems.length > 0 ? (
+                    <View style={styles.reviewSection}>
+                        <Text style={styles.reviewHeader}>Order Items</Text>
+                        {item.orderItems.map((orderItem, index) => {
+                            const productId =
+                                typeof orderItem.product === "object"
+                                    ? (orderItem.product?.id || orderItem.product?._id)
+                                    : orderItem.product;
+                            const hasUserReview = orderItem.hasUserReview === true;
+                            const canLeaveReview = orderItem.canLeaveReview === true;
+                            const allowReviewButton = statusText === STATUS.DELIVERED && (canLeaveReview || hasUserReview);
+
+                            return (
+                                <View key={`${productId || orderItem.name || "item"}-${index}`} style={styles.reviewItemRow}>
+                                    <Text style={styles.reviewItemName}>
+                                        {orderItem.name} x {orderItem.quantity || 1}
+                                    </Text>
+                                    {allowReviewButton ? (
+                                        <TouchableOpacity
+                                            style={styles.reviewBtn}
+                                            onPress={() =>
+                                                navigation.navigate("Home", {
+                                                    screen: "Leave Review",
+                                                    params: {
+                                                        orderId: item.id || item._id,
+                                                        productId,
+                                                        productName: orderItem.name,
+                                                    },
+                                                })
+                                            }
+                                        >
+                                            <Text style={styles.reviewBtnText}>
+                                                {hasUserReview ? "Edit Review" : "Leave a Review"}
+                                            </Text>
+                                        </TouchableOpacity>
+                                    ) : null}
+                                </View>
+                            );
+                        })}
+                    </View>
+                ) : null}
+
                 {update && allowed.length > 0 ? (
                     <View>
                         <Picker
@@ -172,6 +233,36 @@ const styles = StyleSheet.create({
     price: {
         color: "white",
         fontWeight: "bold",
+    },
+    reviewSection: {
+        marginTop: 12,
+        borderTopWidth: 1,
+        borderTopColor: "rgba(255,255,255,0.4)",
+        paddingTop: 10,
+    },
+    reviewHeader: {
+        fontWeight: "700",
+        color: "#fff",
+        marginBottom: 6,
+    },
+    reviewItemRow: {
+        marginBottom: 10,
+    },
+    reviewItemName: {
+        color: "#fff",
+        marginBottom: 6,
+    },
+    reviewBtn: {
+        alignSelf: "flex-start",
+        backgroundColor: "rgba(0,0,0,0.25)",
+        borderRadius: 8,
+        paddingVertical: 6,
+        paddingHorizontal: 10,
+    },
+    reviewBtnText: {
+        color: "#fff",
+        fontWeight: "700",
+        fontSize: 12,
     },
 });
 
