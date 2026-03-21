@@ -51,7 +51,13 @@ const ProductContainer = () => {
 
         const filtered = products.filter((product) => {
             const productName = String(product?.name || "").toLowerCase();
-            const matchesSearch = !nextKeyword || productName.includes(String(nextKeyword).toLowerCase());
+            const productBrand = String(product?.brand || "").toLowerCase();
+            const productDescription = String(product?.description || "").toLowerCase();
+            const searchKeyword = String(nextKeyword).toLowerCase();
+            const matchesSearch = !nextKeyword || 
+                productName.includes(searchKeyword) || 
+                productBrand.includes(searchKeyword) || 
+                productDescription.includes(searchKeyword);
 
             const categoryId = product?.category?.id || product?.category?._id || product?.category;
             const matchesCategory = nextCategory === "all" || String(categoryId) === String(nextCategory);
@@ -74,9 +80,29 @@ const ProductContainer = () => {
         applyFilters(initialState, { category });
     };
 
-    const onChangeSearch = (text) => {
+    const onChangeSearch = async (text) => {
         setKeyword(text);
-        applyFilters(initialState, { keyword: text });
+
+        if (!text || text.trim() === "") {
+            // No search query - use all products
+            applyFilters(initialState, { keyword: text });
+            return;
+        }
+
+        try {
+            // Call backend search API
+            const response = await axios.get(`${baseURL}products/search/query`, {
+                params: { q: text.trim() }
+            });
+            const searchResults = Array.isArray(response.data) ? response.data : [];
+            
+            // Apply filters (category and price) to search results
+            applyFilters(searchResults, { keyword: "" }); // Clear keyword to avoid double filtering
+        } catch (error) {
+            console.log("Search API error:", error.message);
+            // Fallback to local filtering
+            applyFilters(initialState, { keyword: text });
+        }
     };
 
     const onChangeMinPrice = (value) => {
@@ -178,21 +204,21 @@ const ProductContainer = () => {
 
     return (
         <View style={styles.container}>
-            {/* Header: menu (opens drawer), SnapShop, cart */}
+            {/* Header: menu (opens drawer), LapSphere, cart */}
             <View style={styles.header}>
                 <TouchableOpacity
                     onPress={() => navigation.dispatch(DrawerActions.openDrawer())}
                     style={styles.menuBtn}
                     hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                 >
-                    <Ionicons name="grid-outline" size={24} color="#000" />
+                    <Ionicons name="menu" size={28} color="#fff" />
                 </TouchableOpacity>
-                <Text style={styles.headerTitle}>SnapShop</Text>
+                <Text style={styles.headerTitle}>LapSphere</Text>
                 <TouchableOpacity
                     onPress={() => navigation.getParent()?.navigate("Cart Screen")}
                     style={styles.cartBtn}
                 >
-                    <Ionicons name="bag-outline" size={24} color="#000" />
+                    <Ionicons name="bag-handle" size={28} color="#fff" />
                     <CartIcon />
                 </TouchableOpacity>
             </View>
@@ -201,13 +227,14 @@ const ProductContainer = () => {
                 <View style={styles.searchContainer}>
                     <View style={styles.searchRow}>
                         <Searchbar
-                            placeholder="Search"
+                            placeholder="Search products..."
                             onChangeText={(text) => {
                                 onChangeSearch(text);
                             }}
                             value={keyword}
                             onClearIconPress={onBlur}
                             style={styles.searchbar}
+                            iconColor="#1e40af"
                         />
                     </View>
                     <View style={styles.brandsSection}>
@@ -229,6 +256,7 @@ const ProductContainer = () => {
                 >
                     <Banner />
                     <View style={styles.brandsSection}>
+                        <Text style={styles.sectionTitle}>Categories</Text>
                         <CategoryFilter
                             categories={categories}
                             categoryFilter={changeCtg}
@@ -237,10 +265,11 @@ const ProductContainer = () => {
                             setActive={setActive}
                         />
                     </View>
-                    {/* Search bar: full width, own row above products */}
+                    {renderFilterPanel()}
+                    {/* Search bar */}
                     <View style={styles.searchRow}>
                         <Searchbar
-                            placeholder="Search"
+                            placeholder="Search products..."
                             onChangeText={(text) => {
                                 onChangeSearch(text);
                                 setFocus(true);
@@ -248,18 +277,23 @@ const ProductContainer = () => {
                             value={keyword}
                             onClearIconPress={onBlur}
                             style={styles.searchbar}
+                            iconColor="#1e40af"
                         />
                     </View>
-                    {renderFilterPanel()}
+                    
                     {productsCtg.length > 0 ? (
-                        <View style={styles.listContainer}>
-                            {productsCtg.map((item) => (
-                                <ProductList key={item.id || item._id} item={item} />
-                            ))}
-                        </View>
+                        <>
+                            <Text style={styles.productsTitle}>Products ({productsCtg.length})</Text>
+                            <View style={styles.listContainer}>
+                                {productsCtg.map((item) => (
+                                    <ProductList key={item.id || item._id} item={item} />
+                                ))}
+                            </View>
+                        </>
                     ) : (
                         <View style={[styles.center, { height: height / 3 }]}>
-                            <Text>No products found</Text>
+                            <Ionicons name="search-outline" size={48} color="#d1d5db" />
+                            <Text style={styles.noProductsText}>No products found</Text>
                         </View>
                     )}
                 </ScrollView>
@@ -269,57 +303,93 @@ const ProductContainer = () => {
 };
 
 const styles = StyleSheet.create({
-    container: { flex: 1, backgroundColor: "#f5f5f5" },
+    container: { 
+        flex: 1, 
+        backgroundColor: "#f8f9fa" 
+    },
     header: {
         flexDirection: "row",
         alignItems: "center",
         justifyContent: "space-between",
         paddingHorizontal: 16,
         paddingTop: 48,
-        paddingBottom: 12,
-        backgroundColor: "#fff",
-        borderBottomWidth: 1,
-        borderBottomColor: "#eee",
+        paddingBottom: 16,
+        backgroundColor: "#1e40af",
+        shadowColor: "#1e40af",
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.15,
+        shadowRadius: 8,
+        elevation: 6,
     },
-    menuBtn: { padding: 4 },
+    menuBtn: { 
+        padding: 8 
+    },
     headerTitle: {
-        fontSize: 20,
-        fontWeight: "700",
-        color: "#000",
+        fontSize: 26,
+        fontWeight: "900",
+        color: "#fff",
+        letterSpacing: 0.5,
     },
-    cartBtn: { padding: 4, position: "relative" },
-    scrollContent: { paddingBottom: 24 },
-    brandsSection: { backgroundColor: "#f2f2f2", paddingVertical: 8 },
-    searchContainer: { flex: 1 },
+    cartBtn: { 
+        padding: 8, 
+        position: "relative" 
+    },
+    scrollContent: { 
+        paddingBottom: 24 
+    },
+    brandsSection: { 
+        backgroundColor: "#fff",
+        paddingVertical: 12,
+        borderBottomWidth: 1,
+        borderBottomColor: "#e5e7eb",
+    },
+    sectionTitle: {
+        fontSize: 16,
+        fontWeight: "700",
+        color: "#111",
+        marginLeft: 16,
+        marginBottom: 8,
+    },
+    searchContainer: { 
+        flex: 1 
+    },
     searchRow: {
         paddingHorizontal: 12,
         paddingVertical: 12,
         backgroundColor: "#fff",
+        borderBottomWidth: 1,
+        borderBottomColor: "#e5e7eb",
     },
-    searchbar: { backgroundColor: "#f5f5f5", elevation: 0 },
+    searchbar: { 
+        backgroundColor: "#f3f4f6",
+        elevation: 0,
+        borderRadius: 12,
+    },
     filterPanel: {
         marginHorizontal: 12,
-        marginTop: 8,
-        marginBottom: 4,
+        marginTop: 12,
+        marginBottom: 12,
         backgroundColor: "#fff",
         borderRadius: 12,
-        padding: 12,
+        padding: 16,
+        elevation: 2,
     },
     filterHeaderRow: {
         flexDirection: "row",
         justifyContent: "space-between",
         alignItems: "center",
+        marginBottom: 16,
     },
     filterTitle: {
-        fontSize: 15,
-        fontWeight: "700",
+        fontSize: 16,
+        fontWeight: "800",
         color: "#111",
     },
     resetBtn: {
-        backgroundColor: "#111",
+        backgroundColor: "#1e40af",
         borderRadius: 8,
-        paddingVertical: 5,
-        paddingHorizontal: 10,
+        paddingVertical: 6,
+        paddingHorizontal: 12,
     },
     resetBtnText: {
         color: "#fff",
@@ -327,19 +397,35 @@ const styles = StyleSheet.create({
         fontWeight: "700",
     },
     priceText: {
-        color: "#333",
+        color: "#555",
         fontWeight: "600",
-        marginTop: 4,
+        marginTop: 8,
+        marginBottom: 8,
+    },
+    productsTitle: {
+        fontSize: 18,
+        fontWeight: "800",
+        color: "#111",
+        marginLeft: 12,
+        marginTop: 12,
+        marginBottom: 8,
     },
     listContainer: {
         flexDirection: "row",
         flexWrap: "wrap",
-        paddingHorizontal: 8,
+        paddingHorizontal: 6,
+        paddingBottom: 12,
     },
     center: {
         justifyContent: "center",
         alignItems: "center",
         width: "100%",
+        gap: 12,
+    },
+    noProductsText: {
+        fontSize: 16,
+        color: "#999",
+        fontWeight: "500",
     },
 });
 

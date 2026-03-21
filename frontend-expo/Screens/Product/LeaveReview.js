@@ -9,8 +9,8 @@ import {
     ActivityIndicator,
     TextInput,
 } from "react-native";
-import { Picker } from "@react-native-picker/picker";
 import * as ImagePicker from "expo-image-picker";
+import { Ionicons } from "@expo/vector-icons";
 import axios from "axios";
 import mime from "mime";
 import Toast from "react-native-toast-message";
@@ -130,9 +130,9 @@ const LeaveReview = ({ route, navigation }) => {
 
             pickedImages.forEach((uri) => appendImageFile(formData, uri));
 
+            // Let axios set multipart boundary (manual Content-Type breaks uploads on native).
             const config = {
                 headers: {
-                    "Content-Type": "multipart/form-data",
                     Authorization: `Bearer ${jwt || ""}`,
                 },
             };
@@ -146,7 +146,10 @@ const LeaveReview = ({ route, navigation }) => {
                 Toast.show({ topOffset: 60, type: "success", text1: "Review submitted" });
             }
 
-            setTimeout(() => navigation.goBack(), 400);
+            // Navigate back to Product Detail screen
+            setTimeout(() => {
+                navigation.goBack();
+            }, 600);
         } catch (error) {
             const msg = error?.response?.data?.message || "Failed to submit review";
             Toast.show({ topOffset: 60, type: "error", text1: msg });
@@ -171,13 +174,25 @@ const LeaveReview = ({ route, navigation }) => {
 
             <View style={styles.field}>
                 <Text style={styles.label}>Rating</Text>
-                <View style={styles.pickerWrap}>
-                    <Picker selectedValue={rating} onValueChange={(value) => setRating(Number(value))}>
-                        {[5, 4, 3, 2, 1].map((star) => (
-                            <Picker.Item key={star} label={`${star} star${star > 1 ? "s" : ""}`} value={star} />
-                        ))}
-                    </Picker>
+                <Text style={styles.ratingHint}>Tap a star (1–5)</Text>
+                <View style={styles.starRow}>
+                    {[1, 2, 3, 4, 5].map((star) => (
+                        <TouchableOpacity
+                            key={star}
+                            onPress={() => setRating(star)}
+                            hitSlop={{ top: 10, bottom: 10, left: 6, right: 6 }}
+                            accessibilityRole="button"
+                            accessibilityLabel={`${star} stars`}
+                        >
+                            <Ionicons
+                                name={Number(rating) >= star ? "star" : "star-outline"}
+                                size={40}
+                                color="#f5a623"
+                            />
+                        </TouchableOpacity>
+                    ))}
                 </View>
+                <Text style={styles.ratingValue}>{Number(rating)} / 5</Text>
             </View>
 
             <View style={styles.field}>
@@ -241,7 +256,21 @@ const styles = StyleSheet.create({
     subtitle: { marginTop: 4, color: "#666", marginBottom: 16 },
     field: { marginBottom: 16 },
     label: { fontSize: 14, fontWeight: "600", color: "#222", marginBottom: 6 },
-    pickerWrap: { backgroundColor: "#fff", borderRadius: 10, borderWidth: 1, borderColor: "#ddd" },
+    ratingHint: { fontSize: 12, color: "#666", marginBottom: 8 },
+    starRow: {
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "space-between",
+        maxWidth: 280,
+        paddingVertical: 8,
+        paddingHorizontal: 4,
+        backgroundColor: "#fff",
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: "#e5e7eb",
+        marginBottom: 6,
+    },
+    ratingValue: { fontSize: 14, fontWeight: "700", color: "#b45309" },
     commentInput: {
         minHeight: 100,
         backgroundColor: "#fff",

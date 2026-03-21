@@ -12,6 +12,7 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
 import EasyButton from "../../Shared/StyledComponents/EasyButton";
+import { adminTheme } from "../../assets/common/adminTheme";
 
 var { width } = Dimensions.get("window");
 
@@ -34,7 +35,7 @@ const ListItem = ({ item, index, deleteProduct, isDeleting = false }) => {
                             onPress={() => setModalVisible(false)}
                             style={styles.closeButton}
                         >
-                            <Ionicons name="close" size={20} />
+                            <Ionicons name="close" size={20} color={adminTheme.colors.text} />
                         </TouchableOpacity>
                         <EasyButton
                             medium
@@ -70,38 +71,43 @@ const ListItem = ({ item, index, deleteProduct, isDeleting = false }) => {
                 style={[
                     styles.container,
                     {
-                        backgroundColor: index % 2 === 0 ? "white" : "gainsboro",
+                        backgroundColor: index % 2 === 0 ? adminTheme.colors.surface : adminTheme.colors.surfaceLight,
                     },
                 ]}
             >
                 <Image
                     source={item.image ? { uri: item.image } : null}
-                    resizeMode="contain"
+                    resizeMode="cover"
                     style={styles.image}
                 />
-                <Text style={styles.item}>{item.brand}</Text>
-                <Text style={styles.item} numberOfLines={1} ellipsizeMode="tail">
-                    {item.name || ""}
-                </Text>
-                <Text style={styles.item} numberOfLines={1} ellipsizeMode="tail">
-                    {item.category ? item.category.name : ""}
-                </Text>
-                <Text style={styles.item}>$ {item.price}</Text>
+
+                <View style={styles.infoColumn}>
+                    <Text style={styles.name} numberOfLines={1} ellipsizeMode="tail">
+                        {item.name || ""}
+                    </Text>
+                    <Text style={styles.metaText} numberOfLines={1} ellipsizeMode="tail">
+                        {item.brand} · {item.category ? item.category.name : "Uncategorized"}
+                    </Text>
+                    <Text style={styles.price} numberOfLines={1} ellipsizeMode="tail">
+                        $ {item.price}
+                    </Text>
+                </View>
+
                 <View style={styles.actions}>
                     <TouchableOpacity
                         style={styles.actionButton}
                         onPress={() => navigation.navigate("ProductForm", { item })}
                     >
-                        <Ionicons name="create-outline" size={18} color="#333" />
+                        <Ionicons name="create-outline" size={18} color={adminTheme.colors.primaryLight} />
                     </TouchableOpacity>
                     <TouchableOpacity
                         style={styles.actionButton}
                         onPress={() => deleteProduct(itemId)}
                     >
                         {isDeleting ? (
-                            <ActivityIndicator size="small" color="#c62828" />
+                            <ActivityIndicator size="small" color={adminTheme.colors.error} />
                         ) : (
-                            <Ionicons name="trash-outline" size={18} color="#c62828" />
+                            <Ionicons name="trash-outline" size={18} color={adminTheme.colors.error} />
                         )}
                     </TouchableOpacity>
                 </View>
@@ -113,40 +119,62 @@ const ListItem = ({ item, index, deleteProduct, isDeleting = false }) => {
 const styles = StyleSheet.create({
     container: {
         flexDirection: "row",
-        padding: 5,
-        width: width,
+        padding: adminTheme.spacing.sm,
+        width: "100%",
+        borderBottomWidth: 1,
+        borderBottomColor: adminTheme.colors.border,
+        alignItems: "center",
     },
     image: {
-        borderRadius: 50,
-        width: width / 6,
-        height: 20,
-        margin: 2,
+        borderRadius: adminTheme.radius.md,
+        width: 56,
+        height: 56,
+        margin: adminTheme.spacing.xs,
+        backgroundColor: adminTheme.colors.background,
     },
-    item: {
-        flexWrap: "wrap",
-        margin: 3,
-        width: width / 6,
+    infoColumn: {
+        flex: 1,
+        marginHorizontal: adminTheme.spacing.sm,
+    },
+    name: {
+        color: adminTheme.colors.text,
+        fontSize: adminTheme.typography.fontSize.sm,
+        fontWeight: "600",
+        marginBottom: 2,
+    },
+    metaText: {
+        color: adminTheme.colors.textSecondary,
+        fontSize: adminTheme.typography.fontSize.xs,
+        marginBottom: 2,
+    },
+    price: {
+        color: adminTheme.colors.primaryLight,
+        fontSize: adminTheme.typography.fontSize.sm,
+        fontWeight: "700",
     },
     actions: {
         flexDirection: "row",
         alignItems: "center",
-        marginLeft: 4,
+        marginLeft: adminTheme.spacing.sm,
+        gap: adminTheme.spacing.md,
+        flexShrink: 0,
     },
     actionButton: {
-        paddingHorizontal: 6,
-        paddingVertical: 2,
+        padding: adminTheme.spacing.sm,
+        borderRadius: adminTheme.radius.md,
+        backgroundColor: adminTheme.colors.surfaceLight,
     },
     centeredView: {
         flex: 1,
         justifyContent: "center",
         alignItems: "center",
-        marginTop: 22,
+        backgroundColor: "rgba(0, 0, 0, 0.7)",
     },
     modalView: {
-        margin: 20,
-        backgroundColor: "white",
-        borderRadius: 20,
-        padding: 35,
+        margin: adminTheme.spacing.xl,
+        backgroundColor: adminTheme.colors.surface,
+        borderRadius: adminTheme.radius.lg,
+        padding: adminTheme.spacing.xl,
         alignItems: "center",
         shadowColor: "#000",
         shadowOffset: { width: 0, height: 2 },
@@ -157,11 +185,12 @@ const styles = StyleSheet.create({
     closeButton: {
         alignSelf: "flex-end",
         position: "absolute",
-        top: 5,
-        right: 10,
+        top: adminTheme.spacing.md,
+        right: adminTheme.spacing.md,
+        padding: adminTheme.spacing.sm,
     },
     textStyle: {
-        color: "white",
+        color: adminTheme.colors.text,
         fontWeight: "bold",
     },
 });

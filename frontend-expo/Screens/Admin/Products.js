@@ -7,6 +7,7 @@ import {
     StyleSheet,
     Dimensions,
     RefreshControl,
+    Alert,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useNavigation } from "@react-navigation/native";
@@ -16,6 +17,7 @@ import axios from "axios";
 import baseURL from "../../assets/common/baseurl";
 import EasyButton from "../../Shared/StyledComponents/EasyButton";
 import { getJwtToken } from "../../assets/common/authToken";
+import { adminTheme } from "../../assets/common/adminTheme";
 
 var { height, width } = Dimensions.get("window");
 
@@ -30,19 +32,7 @@ const Products = () => {
 
     const ListHeader = () => (
         <View style={styles.listHeader}>
-            <View style={styles.headerItem} />
-            <View style={styles.headerItem}>
-                <Text style={{ fontWeight: "600" }}>Brand</Text>
-            </View>
-            <View style={styles.headerItem}>
-                <Text style={{ fontWeight: "600" }}>Name</Text>
-            </View>
-            <View style={styles.headerItem}>
-                <Text style={{ fontWeight: "600" }}>Category</Text>
-            </View>
-            <View style={styles.headerItem}>
-                <Text style={{ fontWeight: "600" }}>Price</Text>
-            </View>
+            <Text style={styles.headerText}>Tap to view • Long-press for actions</Text>
         </View>
     );
 
@@ -59,19 +49,49 @@ const Products = () => {
     };
 
     const deleteProduct = (id) => {
-        if (deletingId) return;
-        setDeletingId(id);
-        axios
-            .delete(`${baseURL}products/${id}`, {
-                headers: { Authorization: `Bearer ${token}` },
-            })
-            .then((res) => {
-                const filter = (items) => items.filter((item) => (item.id || item._id) !== id);
-                setProductList((prev) => filter(prev));
-                setProductFilter((prev) => filter(prev));
-            })
-            .catch((error) => console.log(error))
-            .finally(() => setDeletingId(null));
+        const product = productList.find(p => (p.id || p._id) === id);
+        const productName = product?.name || "this product";
+        
+        Alert.alert(
+            "Delete Product",
+            `Are you sure you want to delete "${productName}"? This action cannot be undone.`,
+            [
+                {
+                    text: "Cancel",
+                    style: "cancel",
+                },
+                {
+                    text: "Delete",
+                    onPress: async () => {
+                        if (deletingId) return;
+                        setDeletingId(id);
+                        try {
+                            // Get fresh token directly instead of relying on state
+                            const jwt = await getJwtToken();
+                            if (!jwt) {
+                                Alert.alert("Error", "Session expired. Please login again.");
+                                setDeletingId(null);
+                                return;
+                            }
+                            
+                            await axios.delete(`${baseURL}products/${id}`, {
+                                headers: { Authorization: `Bearer ${jwt}` },
+                            });
+                            
+                            const filter = (items) => items.filter((item) => (item.id || item._id) !== id);
+                            setProductList((prev) => filter(prev));
+                            setProductFilter((prev) => filter(prev));
+                        } catch (error) {
+                            Alert.alert("Error", error?.response?.data?.message || "Failed to delete product");
+                            console.log(error);
+                        } finally {
+                            setDeletingId(null);
+                        }
+                    },
+                    style: "destructive",
+                },
+            ]
+        );
     };
 
     const onRefresh = useCallback(() => {
@@ -106,61 +126,68 @@ const Products = () => {
     );
 
     return (
-        <View style={{ flex: 1 }}>
+        <View style={styles.container}>
             <View style={styles.buttonContainer}>
                 <EasyButton
-                    secondary
+                    primary
                     medium
                     onPress={() => navigation.navigate("Orders")}
                 >
-                    <Ionicons name="bag-outline" size={18} color="white" />
+                    <Ionicons name="bag-outline" size={18} color={adminTheme.colors.text} />
                     <Text style={styles.buttonText}>Orders</Text>
                 </EasyButton>
                 <EasyButton
-                    secondary
+                    primary
                     medium
                     onPress={() => navigation.navigate("ProductForm")}
                 >
-                    <Ionicons name="add-outline" size={18} color="white" />
-                    <Text style={styles.buttonText}>Add Product</Text>
+                    <Ionicons name="add-outline" size={18} color={adminTheme.colors.text} />
+                    <Text style={styles.buttonText}>Add</Text>
                 </EasyButton>
                 <EasyButton
-                    secondary
+                    primary
                     medium
                     onPress={() => navigation.navigate("Stock Alerts")}
                 >
-                    <Ionicons name="warning-outline" size={18} color="white" />
-                    <Text style={styles.buttonText}>Stock Alerts</Text>
+                    <Ionicons name="warning-outline" size={18} color={adminTheme.colors.text} />
+                    <Text style={styles.buttonText}>Stock</Text>
                 </EasyButton>
                 <EasyButton
-                    secondary
+                    primary
                     medium
                     onPress={() => navigation.navigate("Promo Broadcast")}
                 >
-                    <Ionicons name="megaphone-outline" size={18} color="white" />
+                    <Ionicons name="megaphone-outline" size={18} color={adminTheme.colors.text} />
                     <Text style={styles.buttonText}>Promo</Text>
                 </EasyButton>
                 <EasyButton
-                    secondary
+                    primary
                     medium
                     onPress={() => navigation.navigate("Categories")}
                 >
-                    <Ionicons name="pricetag-outline" size={18} color="white" />
-                    <Text style={styles.buttonText}>Categories</Text>
+                    <Ionicons name="list-outline" size={18} color={adminTheme.colors.text} />
+                    <Text style={styles.buttonText}>Cat.</Text>
                 </EasyButton>
             </View>
             <Searchbar
-                placeholder="Search"
+                placeholder="Search products..."
+                placeholderTextColor={adminTheme.colors.textTertiary}
                 onChangeText={(text) => searchProduct(text)}
+                style={styles.searchbar}
+                inputStyle={styles.searchInput}
             />
             {loading ? (
                 <View style={styles.spinner}>
-                    <ActivityIndicator size="large" color="red" />
+                    <ActivityIndicator size="large" color={adminTheme.colors.primaryLight} />
                 </View>
             ) : (
                 <FlatList
                     refreshControl={
-                        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+                        <RefreshControl 
+                            refreshing={refreshing} 
+                            onRefresh={onRefresh}
+                            tintColor={adminTheme.colors.primaryLight}
+                        />
                     }
                     ListHeaderComponent={ListHeader}
                     data={productFilter}
@@ -173,6 +200,7 @@ const Products = () => {
                         />
                     )}
                     keyExtractor={(item) => String(item.id || item._id)}
+                    style={styles.flatlist}
                 />
             )}
         </View>
@@ -180,14 +208,20 @@ const Products = () => {
 };
 
 const styles = StyleSheet.create({
-    listHeader: {
-        flexDirection: "row",
-        padding: 5,
-        backgroundColor: "gainsboro",
+    container: {
+        flex: 1,
+        backgroundColor: adminTheme.colors.background,
     },
-    headerItem: {
-        margin: 3,
-        width: width / 6,
+    listHeader: {
+        padding: adminTheme.spacing.md,
+        backgroundColor: adminTheme.colors.surface,
+        borderBottomWidth: 2,
+        borderBottomColor: adminTheme.colors.border,
+    },
+    headerText: {
+        fontWeight: "700",
+        color: adminTheme.colors.primaryLight,
+        fontSize: adminTheme.typography.fontSize.xs,
     },
     spinner: {
         height: height / 2,
@@ -195,13 +229,31 @@ const styles = StyleSheet.create({
         justifyContent: "center",
     },
     buttonContainer: {
-        margin: 20,
+        margin: adminTheme.spacing.lg,
         alignSelf: "center",
         flexDirection: "row",
+        flexWrap: "wrap",
+        justifyContent: "center",
+        gap: adminTheme.spacing.md,
     },
     buttonText: {
-        marginLeft: 4,
-        color: "white",
+        marginLeft: adminTheme.spacing.sm,
+        color: adminTheme.colors.text,
+        fontWeight: "600",
+        fontSize: adminTheme.typography.fontSize.sm,
+    },
+    searchbar: {
+        backgroundColor: adminTheme.colors.surface,
+        borderRadius: adminTheme.radius.md,
+        marginHorizontal: adminTheme.spacing.md,
+        marginVertical: adminTheme.spacing.md,
+        elevation: 2,
+    },
+    searchInput: {
+        color: adminTheme.colors.text,
+    },
+    flatlist: {
+        backgroundColor: adminTheme.colors.background,
     },
 });
 

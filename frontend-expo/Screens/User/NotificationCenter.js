@@ -12,6 +12,9 @@ import * as Notifications from "expo-notifications";
 import { useFocusEffect, useNavigation } from "@react-navigation/native";
 import AuthGlobal from "../../Context/Store/AuthGlobal";
 import { getNotificationTarget } from "../../assets/common/notificationRouting";
+import axios from "axios";
+import baseURL from "../../assets/common/baseurl";
+import { getJwtToken } from "../../assets/common/authToken";
 
 const NotificationCenter = () => {
     const navigation = useNavigation();
@@ -23,21 +26,56 @@ const NotificationCenter = () => {
     const loadNotifications = useCallback(async () => {
         setRefreshing(true);
         try {
-            // Get delivered notifications from the system tray
+            // First, get delivered push notifications from the system tray
             const delivered = await Notifications.getPresentedNotificationsAsync();
-            const mapped = delivered.map((n) => ({
+            const pushNotifs = delivered.map((n) => ({
                 id: n.request.identifier,
                 title: n.request.content.title || "Notification",
                 body: n.request.content.body || "",
                 date: n.date ? new Date(n.date) : new Date(),
                 data: n.request.content.data || {},
+                source: "push",
             }));
-            // Sort newest first
-            mapped.sort((a, b) => b.date - a.date);
-            setNotifications(mapped);
+
+            // Fetch notifications from backend API
+            let dbNotifs = [];
+            try {
+                const token = await getJwtToken();
+                if (token) {
+                    const response = await axios.get(
+                        `${baseURL}notifications?limit=50&page=1`,
+                        {
+                            headers: { Authorization: `Bearer ${token}` },
+                        }
+                    );
+                    dbNotifs = (response.data?.data || []).map((n) => ({
+                        id: n.id || n._id,
+                        title: n.title,
+                        body: n.message,
+                        date: new Date(n.createdAt),
+                        data: {
+                            ...n.data,
+                            type: n.type,
+                            orderId: n.orderId?.id || n.orderId?._id,
+                            orderStatus: n.orderStatus,
+                        },
+                        dbId: n.id || n._id,
+                        read: n.read,
+                        source: "database",
+                    }));
+                }
+            } catch (apiErr) {
+                console.log("Error fetching database notifications:", apiErr.message);
+            }
+
+            // Combine and sort by date (newest first)
+            const combined = [...dbNotifs, ...pushNotifs];
+            combined.sort((a, b) => new Date(b.date) - new Date(a.date));
+
+            setNotifications(combined);
             setOpenedNotifications((prevOpened) => {
                 if (!Array.isArray(prevOpened) || prevOpened.length === 0) return prevOpened;
-                const activeIds = new Set(mapped.map((item) => item.id));
+                const activeIds = new Set(combined.map((item) => item.id));
                 return prevOpened.filter((item) => !activeIds.has(item.id));
             });
         } catch (err) {
@@ -73,6 +111,13 @@ const NotificationCenter = () => {
 
         const data = item?.data || {};
         const isAdmin = context?.stateUser?.user?.isAdmin === true;
+
+        // Handle order status notifications - navigate to OrderDetails
+        if (data.type === "order_status" && data.orderId) {
+            navigation.navigate("Order Details", { orderId: data.orderId });
+            return;
+        }
+
         const target = getNotificationTarget({ data, isAdmin });
 
         if (!target) {
@@ -111,18 +156,30 @@ const NotificationCenter = () => {
     };
 
     const renderItem = ({ item }) => (
-        <TouchableOpacity style={styles.card} activeOpacity={0.8} onPress={() => openNotification(item)}>
+        <TouchableOpacity 
+            style={[
+                styles.card, 
+                item.source === "database" && item.read && styles.readCard,
+            ]} 
+            activeOpacity={0.8} 
+            onPress={() => openNotification(item)}
+        >
             <View style={styles.iconContainer}>
-                <Ionicons name="notifications" size={24} color="#e91e63" />
+                {item.data?.type === "order_status" ? (
+                    <Ionicons name="cube-outline" size={24} color={item.read ? "#999" : "#1e40af"} />
+                ) : (
+                    <Ionicons name="notifications" size={24} color={item.read ? "#999" : "#e91e63"} />
+                )}
             </View>
             <View style={styles.textContainer}>
-                <Text style={styles.title}>{item.title}</Text>
-                <Text style={styles.body}>{item.body}</Text>
+                <Text style={[styles.title, item.read && styles.readText]}>{item.title}</Text>
+                <Text style={[styles.body, item.read && styles.readText]}>{item.body}</Text>
                 <Text style={styles.date}>
                     {item.date.toLocaleDateString()} {item.date.toLocaleTimeString()}
                 </Text>
             </View>
-            <Ionicons name="chevron-forward" size={18} color="#999" />
+            {item.source === "database" && !item.read && <View style={styles.unreadIndicator} />}
+            <Ionicons name="chevron-forward" size={18} color={item.read ? "#ccc" : "#999"} />
         </TouchableOpacity>
     );
 
@@ -219,6 +276,10 @@ const styles = StyleSheet.create({
         borderRadius: 10,
         elevation: 2,
     },
+    readCard: {
+        backgroundColor: "#fafafa",
+        opacity: 0.85,
+    },
     openedCard: {
         opacity: 0.9,
         backgroundColor: "#fafafa",
@@ -230,9 +291,18 @@ const styles = StyleSheet.create({
     },
     textContainer: { flex: 1 },
     title: { fontSize: 15, fontWeight: "700", color: "#1a1a1a", marginBottom: 2 },
+    readText: { color: "#888" },
     openedTitle: { color: "#444" },
     body: { fontSize: 13, color: "#333", marginBottom: 4 },
     date: { fontSize: 11, color: "#666" },
+    unreadIndicator: {
+        width: 8,
+        height: 8,
+        borderRadius: 4,
+        backgroundColor: "#e91e63",
+        marginRight: 8,
+        marginTop: 6,
+    },
     openedSection: {
         marginTop: 8,
         paddingBottom: 10,

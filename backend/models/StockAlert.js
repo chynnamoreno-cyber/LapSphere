@@ -3,9 +3,9 @@ const mongoose = require("mongoose");
 const stockAlertSchema = new mongoose.Schema(
   {
     product: { type: mongoose.Schema.Types.ObjectId, ref: "Product", required: true },
-    type: { type: String, enum: ["low", "out"], required: true },
-    threshold: { type: Number, required: true },
-    countInStock: { type: Number, required: true },
+    stockLevel: { type: Number, required: true },
+    threshold: { type: Number, required: true, default: 10 },
+    type: { type: String, enum: ["low", "out_of_stock"], default: "low" },
     resolved: { type: Boolean, default: false },
   },
   { timestamps: true }

@@ -9,12 +9,13 @@ const productRoutes = require("./routes/products");
 const orderRoutes = require("./routes/orders");
 const stockAlertRoutes = require("./routes/stockAlerts");
 const promoRoutes = require("./routes/promos");
+const notificationRoutes = require("./routes/notifications");
 
 const app = express();
 
 app.use(cors({ origin: config.corsOrigin }));
-app.use(express.json({ limit: "10mb" }));
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: "50mb" }));
+app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 app.use(morgan("dev"));
 app.use(`/${config.uploadDir}`, express.static(path.resolve(process.cwd(), config.uploadDir)));
 
@@ -24,6 +25,7 @@ app.use(`${config.apiPrefix}/products`, productRoutes);
 app.use(`${config.apiPrefix}/orders`, orderRoutes);
 app.use(`${config.apiPrefix}/stock-alerts`, stockAlertRoutes);
 app.use(`${config.apiPrefix}/promos`, promoRoutes);
+app.use(`${config.apiPrefix}/notifications`, notificationRoutes);
 
 app.get(`${config.apiPrefix}/health`, (_req, res) => {
   res.status(200).json({ ok: true, message: "Backend config scaffold is running." });

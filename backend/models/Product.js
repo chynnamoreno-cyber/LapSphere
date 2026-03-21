@@ -14,6 +14,10 @@ const productSchema = new mongoose.Schema(
     rating: { type: Number, default: 0 },
     numReviews: { type: Number, default: 0 },
     isFeatured: { type: Boolean, default: false },
+    // Used when applying promos/discounts so we can base future calculations on the original price.
+    originalPrice: { type: Number, default: null },
+    // Timestamp for when the active promo expires
+    promoExpireAt: { type: Date, default: null },
     dateCreated: { type: Date, default: Date.now },
   },
   { timestamps: true }

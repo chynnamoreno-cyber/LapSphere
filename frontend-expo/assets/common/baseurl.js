@@ -1,16 +1,39 @@
 /**
- * Backend API base URL. The app sends all API requests (login, products, orders, etc.) here.
+ * Backend API base URL (must end with /api/v1/ — see trailing slash below).
  *
- * SETUP FOR EXPO GO ON YOUR PHONE:
- * 1. Run the backend on your laptop (e.g. node server.js in the backend folder, port 4000).
- * 2. Find your laptop's IP (Windows: ipconfig → IPv4; same WiFi as your phone).
- * 3. Set BACKEND_HOST below to that IP, e.g. 'http://192.168.1.105:4000'
- * 4. Run: npx expo start → scan QR with Expo Go. Your phone will call this URL.
+ * Priority:
+ * 1) EXPO_PUBLIC_API_URL in env (e.g. app.config.js `extra` or EAS secrets) — full host only, no /api path
+ * 2) expo.extra.apiUrl from app.json
+ * 3) Web default: http://localhost:4000
+ * 4) Native fallback: update DEFAULT_LAN_HOST to your PC IPv4 (same Wi‑Fi as the phone)
  *
- * For web/same machine: use 'http://localhost:4000'
- * When backend is deployed to cloud: set BACKEND_HOST to that URL (e.g. https://your-api.railway.app)
+ * Android + HTTP: `app.json` sets usesCleartextTraffic so LAN dev servers work.
  */
-const BACKEND_HOST = 'http://192.168.1.8:4000';
-const baseURL = `${BACKEND_HOST}/api/v1/`;
+import Constants from "expo-constants";
+import { Platform } from "react-native";
+
+const DEFAULT_LAN_HOST = "http://192.168.1.36:4000";
+
+function normalizeHost(url) {
+    if (!url || typeof url !== "string") return null;
+    const t = url.trim().replace(/\/+$/, "");
+    return t || null;
+}
+
+const fromEnv =
+    (typeof process !== "undefined" && process.env && process.env.EXPO_PUBLIC_API_URL) || "";
+const fromExtra =
+    Constants.expoConfig?.extra?.apiUrl ||
+    Constants.expoConfig?.extra?.BACKEND_HOST ||
+    Constants.manifest?.extra?.apiUrl ||
+    Constants.manifest?.extra?.BACKEND_HOST ||
+    "";
+
+const resolvedHost =
+    normalizeHost(fromEnv) ||
+    normalizeHost(fromExtra) ||
+    (Platform.OS === "web" ? "http://localhost:4000" : DEFAULT_LAN_HOST);
+
+const baseURL = `${resolvedHost}/api/v1/`;
 
 export default baseURL;

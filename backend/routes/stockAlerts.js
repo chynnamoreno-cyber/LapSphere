@@ -15,7 +15,7 @@ router.get("/", authJwt, async (req, res) => {
     const filter = includeResolved ? {} : { resolved: false };
 
     const alerts = await StockAlert.find(filter)
-      .populate("product", "id name countInStock")
+      .populate("product", "_id id name countInStock")
       .sort({ createdAt: -1 });
 
     return res.status(200).json(alerts);

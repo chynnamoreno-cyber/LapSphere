@@ -7,6 +7,7 @@ const mongoose = require("mongoose");
 const Product = require("../models/Product");
 const Order = require("../models/Order");
 const Review = require("../models/Review");
+const Notification = require("../models/Notification");
 const StockAlert = require("../models/StockAlert");
 const User = require("../models/User");
 const { sendToTokens } = require("../services/notifications");
@@ -32,23 +33,57 @@ const storage = multer.diskStorage({
 
 const upload = multer({
   storage,
-  limits: { fileSize: config.maxFileSizeMb * 1024 * 1024 },
+  limits: {
+    fileSize: config.maxFileSizeMb * 1024 * 1024,
+    // Base64 payloads for web can be large; allow bigger multipart text fields.
+    fieldSize: 200 * 1024 * 1024,
+    fields: 50,
+  },
 });
 
 const uploadReviewImages = upload.array("images", 3);
+const uploadProductImages = upload.array("images", 10);
 
 const STOCK_LOW_THRESHOLD = 10;
 
-async function notifyAdmins(title, body) {
+async function notifyAdmins(title, body, data) {
   try {
     const admins = await User.find({ isAdmin: true, pushToken: { $ne: "" } }, "pushToken pushTokenType").lean();
     const tokens = admins
       .filter((a) => a.pushToken)
       .map((a) => ({ token: a.pushToken, type: a.pushTokenType || "fcm" }));
     console.log(`[notifyAdmins] Sending to ${tokens.length} admin(s): "${title}"`);
-    await sendToTokens(tokens, { title, body });
+    await sendToTokens(tokens, { title, body, data: data || {} });
   } catch (error) {
     console.error('[notifyAdmins] Error:', error.message);
+  }
+}
+
+async function notifyCustomersAboutStock(product, alertType) {
+  try {
+    // Send notification to customers about low stock (only for out of stock)
+    if (alertType === "out") {
+      const customers = await User.find(
+        { isAdmin: false, pushToken: { $ne: "" } },
+        "pushToken pushTokenType"
+      ).lean();
+      const tokens = customers
+        .filter((u) => u.pushToken)
+        .map((u) => ({ token: u.pushToken, type: u.pushTokenType || "fcm" }));
+      
+      if (tokens.length > 0) {
+        console.log(
+          `[notifyCustomersAboutStock] Sending out-of-stock alert for "${product.name}" to ${tokens.length} customer(s)`
+        );
+        await sendToTokens(tokens, {
+          title: "Stock Update",
+          body: `${product.name} is out of stock, but check back soon!`,
+          data: { route: "notifications", type: "stock", productId: product._id?.toString() },
+        });
+      }
+    }
+  } catch (error) {
+    console.error('[notifyCustomersAboutStock] Error:', error.message);
   }
 }
 
@@ -71,6 +106,7 @@ async function updateStockAlerts(product) {
         countInStock: count,
       });
       await notifyAdmins("Out of stock", `${productName} is out of stock.`);
+      await notifyCustomersAboutStock(product, "out");
     } else if (existingOut.countInStock !== count) {
       existingOut.countInStock = count;
       await existingOut.save();
@@ -91,7 +127,11 @@ async function updateStockAlerts(product) {
         threshold: STOCK_LOW_THRESHOLD,
         countInStock: count,
       });
-      await notifyAdmins("Low stock", `${productName} is low on stock (${count}).`);
+      await notifyAdmins("Low stock", `${productName} is low on stock (${count}).`, {
+        route: "admin-stock-alerts",
+        productId: productId.toString(),
+        count,
+      });
     } else if (existingLow.countInStock !== count) {
       existingLow.countInStock = count;
       await existingLow.save();
@@ -114,6 +154,93 @@ function parseBoolean(value, fallback = false) {
   if (value === undefined || value === null) return fallback;
   if (typeof value === "boolean") return value;
   return String(value).toLowerCase() === "true";
+}
+
+function parseJsonArray(raw) {
+  if (raw === undefined || raw === null) return null;
+  if (Array.isArray(raw)) return raw;
+  if (typeof raw === "string") {
+    try {
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : null;
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+function uniqStrings(values) {
+  const out = [];
+  const seen = new Set();
+  for (const v of values || []) {
+    const s = String(v || "").trim();
+    if (!s) continue;
+    if (seen.has(s)) continue;
+    seen.add(s);
+    out.push(s);
+  }
+  return out;
+}
+
+function isHttpUrl(value) {
+  const s = String(value || "").trim();
+  return s.startsWith("http://") || s.startsWith("https://");
+}
+
+function materializeBase64Images(raw, req) {
+  const arr = parseJsonArray(raw);
+  if (!Array.isArray(arr) || arr.length === 0) return [];
+
+  const written = [];
+  for (const entry of arr) {
+    let data = String(entry?.data || "").trim();
+    if (!data) continue;
+    // Support either raw base64 or dataURL base64 (data:image/*;base64,....)
+    const commaIdx = data.indexOf(",");
+    if (data.startsWith("data:") && commaIdx >= 0) {
+      data = data.slice(commaIdx + 1);
+    }
+    const mime = String(entry?.mime || "image/jpeg");
+    const ext = mime.includes("png") ? ".png" : ".jpg";
+    const filename = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}${ext}`;
+    const buffer = Buffer.from(data, "base64");
+    const filepath = path.join(uploadPath, filename);
+    try {
+      fs.writeFileSync(filepath, buffer);
+      written.push(buildImageUrl(req, filename));
+    } catch (error) {
+      console.warn("[products] Failed to write base64 image:", error.message);
+    }
+  }
+  return written;
+}
+
+function parseJsonArray(raw) {
+  if (raw === undefined || raw === null) return null;
+  if (Array.isArray(raw)) return raw;
+  if (typeof raw === "string") {
+    try {
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : null;
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+function uniqStrings(values) {
+  const out = [];
+  const seen = new Set();
+  for (const v of values || []) {
+    const s = String(v || "").trim();
+    if (!s) continue;
+    if (seen.has(s)) continue;
+    seen.add(s);
+    out.push(s);
+  }
+  return out;
 }
 
 async function refreshProductReviewStats(productId) {
@@ -163,6 +290,28 @@ router.get("/", async (_req, res) => {
     return res.status(200).json(products);
   } catch (_error) {
     return res.status(500).json({ message: "Failed to load products" });
+  }
+});
+
+// GET /products/search — full-text search for products by name
+router.get("/search/query", async (req, res) => {
+  try {
+    const query = String(req.query.q || "").trim();
+    
+    if (!query) {
+      return res.status(400).json({ message: "Search query is required" });
+    }
+
+    // Search by product name (case-insensitive regex)
+    const products = await Product.find({
+      name: { $regex: query, $options: "i" }
+    })
+      .populate("category", "id name color")
+      .limit(20);
+
+    return res.status(200).json(products);
+  } catch (_error) {
+    return res.status(500).json({ message: "Failed to search products" });
   }
 });
 
@@ -279,6 +428,44 @@ router.post("/:id/reviews", authJwt, uploadReviewImages, async (req, res) => {
 
     await refreshProductReviewStats(productId);
 
+    // Send push notification to the reviewer confirming submission
+    try {
+      const reviewer = await User.findById(req.user.userId).select("pushToken pushTokenType");
+      if (reviewer?.pushToken) {
+        // Create notification record
+        await Notification.create({
+          user: req.user.userId,
+          type: "order_status",
+          title: "Review Submitted",
+          message: "Your product review has been submitted successfully",
+          orderId: orderId,
+          orderStatus: "reviewed",
+          data: { orderId: orderId.toString(), productId: productId.toString() },
+        });
+
+        // Send push notification
+        await sendToTokens(
+          [{ token: reviewer.pushToken, type: reviewer.pushTokenType || "fcm" }],
+          {
+            title: "Review Submitted",
+            body: "Your product review was successfully submitted",
+            data: {
+              route: "order-details",
+              orderId: orderId.toString(),
+              type: "review_created",
+            },
+          }
+        );
+        console.log(`[POST /products/:id/reviews] Notification sent to reviewer ${req.user.userId}`);
+      }
+    } catch (notifError) {
+      console.warn(
+        `[POST /products/:id/reviews] Failed to send review creation notification:`,
+        notifError.message
+      );
+      // Don't fail the request if notification fails
+    }
+
     const populated = await review.populate("user", "id name image");
     return res.status(201).json(populated);
   } catch (error) {
@@ -343,6 +530,44 @@ router.put("/:id/reviews/:reviewId", authJwt, uploadReviewImages, async (req, re
     await review.save();
     await refreshProductReviewStats(productId);
 
+    // Send push notification to the reviewer about their review update
+    try {
+      const reviewer = await User.findById(req.user.userId).select("pushToken pushTokenType");
+      if (reviewer?.pushToken) {
+        // Create notification record
+        await Notification.create({
+          user: req.user.userId,
+          type: "order_status",
+          title: "Review Updated",
+          message: "Your product review has been updated successfully",
+          orderId: review.order,
+          orderStatus: "reviewed",
+          data: { orderId: review.order?.toString(), productId: productId.toString() },
+        });
+
+        // Send push notification with order details
+        await sendToTokens(
+          [{ token: reviewer.pushToken, type: reviewer.pushTokenType || "fcm" }],
+          {
+            title: "Review Updated",
+            body: "Your review was successfully updated",
+            data: {
+              route: "order-details",
+              orderId: review.order?.toString(),
+              type: "review_updated",
+            },
+          }
+        );
+        console.log(`[PUT /products/:id/reviews/:reviewId] Notification sent to reviewer ${req.user.userId}`);
+      }
+    } catch (notifError) {
+      console.warn(
+        `[PUT /products/:id/reviews/:reviewId] Failed to send review update notification:`,
+        notifError.message
+      );
+      // Don't fail the request if notification fails
+    }
+
     const populated = await review.populate("user", "id name image");
     return res.status(200).json(populated);
   } catch (_error) {
@@ -351,34 +576,54 @@ router.put("/:id/reviews/:reviewId", authJwt, uploadReviewImages, async (req, re
 });
 
 // POST /products — admin only, multipart
-router.post("/", authJwt, upload.single("image"), async (req, res) => {
+router.post("/", authJwt, uploadProductImages, async (req, res) => {
   try {
     if (!req.user?.isAdmin) {
       return res.status(403).json({ message: "Admin access required" });
     }
     const { name, brand, price, description, richDescription, category,
-            countInStock, rating, numReviews, isFeatured } = req.body;
+            countInStock, rating, numReviews, isFeatured, image } = req.body;
     if (!name || !brand || !price || !category || countInStock === undefined) {
       return res.status(400).json({ message: "name, brand, price, category and countInStock are required" });
     }
-    const image = req.file ? buildImageUrl(req, req.file.filename) : "";
+
+    // Process uploaded images (multipart + optional base64 from mobile)
+    const incomingFilesCount = (req.files || []).length;
+    const incomingBase64Count = Array.isArray(parseJsonArray(req.body.imagesBase64))
+      ? parseJsonArray(req.body.imagesBase64).length
+      : 0;
+    console.log(
+      `[POST /products] files=${incomingFilesCount}, base64=${incomingBase64Count}`
+    );
+
+    const fileUrls = (req.files || [])
+      .map((file) => buildImageUrl(req, file.filename))
+      .filter(isHttpUrl);
+    const base64Urls = materializeBase64Images(req.body.imagesBase64, req);
+    const imageUrls = uniqStrings([...fileUrls, ...base64Urls].filter(isHttpUrl));
+    
+    // Use first uploaded image as main image, or fallback to provided image field
+    const mainImage = imageUrls.length > 0 ? imageUrls[0] : (isHttpUrl(image) ? image : "");
+    
     const product = await Product.create({
       name, brand, price: Number(price), description, richDescription,
       category, countInStock: Number(countInStock),
       rating: Number(rating || 0), numReviews: Number(numReviews || 0),
       isFeatured: isFeatured === "true" || isFeatured === true,
-      image,
+      image: mainImage,
+      images: imageUrls,
     });
     const populated = await product.populate("category", "id name color");
     await updateStockAlerts(product);
     return res.status(201).json(populated);
-  } catch (_error) {
+  } catch (error) {
+    console.error('[POST /products] Error:', error.message);
     return res.status(500).json({ message: "Failed to create product" });
   }
 });
 
 // PUT /products/:id — admin only, multipart
-router.put("/:id", authJwt, upload.single("image"), async (req, res) => {
+router.put("/:id", authJwt, uploadProductImages, async (req, res) => {
   try {
     if (!req.user?.isAdmin) {
       return res.status(403).json({ message: "Admin access required" });
@@ -388,7 +633,35 @@ router.put("/:id", authJwt, upload.single("image"), async (req, res) => {
 
     const { name, brand, price, description, richDescription, category,
             countInStock, rating, numReviews, isFeatured } = req.body;
-    const image = req.file ? buildImageUrl(req, req.file.filename) : existing.image;
+    
+    // Process uploaded images (multipart + optional base64 from mobile/web)
+    const uploadedFileUrls = (req.files || [])
+      .map((file) => buildImageUrl(req, file.filename))
+      .filter(isHttpUrl);
+    const uploadedBase64Urls = materializeBase64Images(req.body.imagesBase64, req);
+    console.log(
+      `[PUT /products] uploaded files=${(req.files || []).length}, base64=${Array.isArray(parseJsonArray(req.body.imagesBase64)) ? parseJsonArray(req.body.imagesBase64).length : 0}`
+    );
+    const uploadedImageUrls = uniqStrings([...uploadedFileUrls, ...uploadedBase64Urls].filter(isHttpUrl));
+    
+    // Retain existing images if requested (default: keep all existing)
+    const requestedExisting = parseJsonArray(req.body.existingImages);
+    const retainedExisting = Array.isArray(requestedExisting)
+      ? requestedExisting
+      : (existing.images || []);
+    const retainedExistingHttpOnly = uniqStrings((retainedExisting || []).filter(isHttpUrl));
+
+    // Merge retained existing + uploaded new images
+    const mergedImages = uniqStrings([...(retainedExistingHttpOnly || []), ...(uploadedImageUrls || [])]).slice(0, 10);
+
+    // Pick main image: prefer an explicit existing URL, else first uploaded, else existing.image
+    const mainImageUrl = String(req.body.mainImageUrl || "").trim();
+    const finalMainImage =
+      (mainImageUrl && mergedImages.includes(mainImageUrl))
+        ? mainImageUrl
+        : (uploadedImageUrls.length > 0
+          ? uploadedImageUrls[0]
+          : (isHttpUrl(existing.image) ? existing.image : (mergedImages[0] || "")));
 
     const updated = await Product.findByIdAndUpdate(
       req.params.id,
@@ -403,7 +676,8 @@ router.put("/:id", authJwt, upload.single("image"), async (req, res) => {
         rating: rating !== undefined ? Number(rating) : existing.rating,
         numReviews: numReviews !== undefined ? Number(numReviews) : existing.numReviews,
         isFeatured: isFeatured !== undefined ? (isFeatured === "true" || isFeatured === true) : existing.isFeatured,
-        image,
+        image: finalMainImage,
+        images: mergedImages,
       },
       { new: true }
     ).populate("category", "id name color");

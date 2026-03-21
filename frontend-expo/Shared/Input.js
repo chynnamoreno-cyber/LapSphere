@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { TextInput, StyleSheet, View, Text, TouchableOpacity } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { adminTheme } from "../assets/common/adminTheme";
 
 /**
  * Shared Input component with optional label.
@@ -22,7 +23,7 @@ const Input = (props) => {
                         isPassword && styles.inputWithToggle,
                         props.editable === false && styles.inputDisabled,
                     ]}
-                    placeholderTextColor="#999"
+                    placeholderTextColor={adminTheme.colors.textTertiary}
                     {...rest}
                     secureTextEntry={isPassword ? hidden : props.secureTextEntry}
                 />
@@ -35,7 +36,7 @@ const Input = (props) => {
                         <Ionicons
                             name={hidden ? "eye-off-outline" : "eye-outline"}
                             size={22}
-                            color="#666"
+                            color={adminTheme.colors.textSecondary}
                         />
                     </TouchableOpacity>
                 ) : null}
@@ -46,15 +47,15 @@ const Input = (props) => {
 
 const styles = StyleSheet.create({
     wrapper: {
-        width: "88%",
-        marginBottom: 14,
+        width: "100%",
+        marginBottom: adminTheme.spacing.lg,
     },
     label: {
-        fontSize: 13,
+        fontSize: adminTheme.typography.fontSize.sm,
         fontWeight: "600",
-        color: "#333",
-        marginBottom: 5,
-        marginLeft: 4,
+        color: adminTheme.colors.primaryLight,
+        marginBottom: adminTheme.spacing.sm,
+        marginLeft: adminTheme.spacing.sm,
     },
     inputRow: {
         position: "relative",
@@ -62,21 +63,21 @@ const styles = StyleSheet.create({
     input: {
         width: "100%",
         height: 48,
-        backgroundColor: "white",
-        borderRadius: 10,
-        paddingHorizontal: 14,
-        paddingRight: 14,
+        backgroundColor: adminTheme.colors.surface,
+        borderRadius: adminTheme.radius.md,
+        paddingHorizontal: adminTheme.spacing.md,
+        paddingRight: adminTheme.spacing.md,
         borderWidth: 1.5,
-        borderColor: "#ddd",
-        fontSize: 15,
-        color: "#1a1a1a",
+        borderColor: adminTheme.colors.border,
+        fontSize: adminTheme.typography.fontSize.base,
+        color: adminTheme.colors.text,
     },
     inputWithToggle: {
         paddingRight: 48,
     },
     inputDisabled: {
-        backgroundColor: "#f0f0f0",
-        color: "#666",
+        backgroundColor: adminTheme.colors.surfaceLight,
+        color: adminTheme.colors.textSecondary,
     },
     eyeButton: {
         position: "absolute",

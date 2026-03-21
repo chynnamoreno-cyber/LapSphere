@@ -2,6 +2,8 @@ import React, { useContext } from "react";
 import { View, Text, StyleSheet, Button } from "react-native";
 import { createStackNavigator } from "@react-navigation/stack";
 import { useNavigation } from "@react-navigation/native";
+import { Ionicons } from "@expo/vector-icons";
+import { DrawerActions } from "@react-navigation/native";
 import Orders from "../Screens/Admin/Orders";
 import Products from "../Screens/Admin/Products";
 import ProductForm from "../Screens/Admin/ProductForm";
@@ -36,12 +38,87 @@ const AdminNavigator = () => {
     }
     return (
         <Stack.Navigator>
-            <Stack.Screen name="Products" component={Products} options={{ title: "Products" }} />
-            <Stack.Screen name="Categories" component={Categories} />
-            <Stack.Screen name="Orders" component={Orders} />
-            <Stack.Screen name="Stock Alerts" component={StockAlerts} />
-            <Stack.Screen name="Promo Broadcast" component={PromoBroadcast} />
-            <Stack.Screen name="ProductForm" component={ProductForm} />
+            <Stack.Screen
+                name="Products"
+                component={Products}
+                options={({ navigation }) => ({
+                    title: "Products",
+                    headerLeft: () => (
+                        <Ionicons
+                            name="menu"
+                            size={24}
+                            color="#333"
+                            style={{ marginLeft: 15 }}
+                            onPress={() => navigation.dispatch(DrawerActions.toggleDrawer())}
+                        />
+                    ),
+                })}
+            />
+            <Stack.Screen
+                name="Categories"
+                component={Categories}
+                options={({ navigation }) => ({
+                    title: "Categories",
+                    headerLeft: () => (
+                        <Ionicons
+                            name="menu"
+                            size={24}
+                            color="#333"
+                            style={{ marginLeft: 15 }}
+                            onPress={() => navigation.dispatch(DrawerActions.toggleDrawer())}
+                        />
+                    ),
+                })}
+            />
+            <Stack.Screen
+                name="Orders"
+                component={Orders}
+                options={({ navigation }) => ({
+                    title: "Orders",
+                    headerLeft: () => (
+                        <Ionicons
+                            name="menu"
+                            size={24}
+                            color="#333"
+                            style={{ marginLeft: 15 }}
+                            onPress={() => navigation.dispatch(DrawerActions.toggleDrawer())}
+                        />
+                    ),
+                })}
+            />
+            <Stack.Screen
+                name="Stock Alerts"
+                component={StockAlerts}
+                options={({ navigation }) => ({
+                    title: "Stock Alerts",
+                    headerLeft: () => (
+                        <Ionicons
+                            name="menu"
+                            size={24}
+                            color="#333"
+                            style={{ marginLeft: 15 }}
+                            onPress={() => navigation.dispatch(DrawerActions.toggleDrawer())}
+                        />
+                    ),
+                })}
+            />
+            <Stack.Screen
+                name="Promo Broadcast"
+                component={PromoBroadcast}
+                options={({ navigation }) => ({
+                    title: "Promo Broadcast",
+                    headerLeft: () => (
+                        <Ionicons
+                            name="menu"
+                            size={24}
+                            color="#333"
+                            style={{ marginLeft: 15 }}
+                            onPress={() => navigation.dispatch(DrawerActions.toggleDrawer())}
+                        />
+                    ),
+                })}
+            />
+            <Stack.Screen name="ProductForm" component={ProductForm} options={{ title: "Product Form" }} />
         </Stack.Navigator>
     );
 };

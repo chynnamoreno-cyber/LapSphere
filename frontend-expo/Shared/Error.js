@@ -1,5 +1,6 @@
 import React from "react";
 import { StyleSheet, View, Text } from "react-native";
+import { adminTheme } from "../assets/common/adminTheme";
 
 const Error = (props) => {
     return (
@@ -11,12 +12,19 @@ const Error = (props) => {
 
 const styles = StyleSheet.create({
     container: {
-        width: "100%",
+        width: "88%",
         alignItems: "center",
-        margin: 10,
+        margin: adminTheme.spacing.md,
+        padding: adminTheme.spacing.md,
+        backgroundColor: adminTheme.colors.error + "20",
+        borderRadius: adminTheme.radius.md,
+        borderLeftWidth: 4,
+        borderLeftColor: adminTheme.colors.error,
     },
     text: {
-        color: "red",
+        color: adminTheme.colors.error,
+        fontWeight: "600",
+        fontSize: adminTheme.typography.fontSize.sm,
     },
 });
 

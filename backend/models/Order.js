@@ -34,6 +34,9 @@ const orderSchema = new mongoose.Schema(
     totalPrice: { type: Number, default: 0 },
     user: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
     dateOrdered: { type: Date, default: Date.now },
+    cancellationReason: { type: String, default: "" },
+    cancellationApprovalStatus: { type: String, enum: ["pending_approval", "approved", "none"], default: "none" },
+    statusUpdatedAt: { type: Date, default: Date.now },
   },
   { timestamps: true }
 );

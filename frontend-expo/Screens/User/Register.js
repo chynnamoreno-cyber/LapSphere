@@ -131,7 +131,7 @@ const Register = () => {
             >
                 <Text style={styles.title}>Create Account</Text>
                 <Text style={styles.subtitle}>
-                    Shop the best products. Create an account to get started.
+                    Shop premium laptops and gear. Create your account now.
                 </Text>
 
                 <View style={styles.imagePickerWrap}>
@@ -262,7 +262,7 @@ const styles = StyleSheet.create({
         gap: 10,
     },
     imageBtn: {
-        backgroundColor: "#111",
+        backgroundColor: "#1e40af",
         borderRadius: 8,
         paddingVertical: 7,
         paddingHorizontal: 12,
@@ -282,11 +282,16 @@ const styles = StyleSheet.create({
     loader: { marginVertical: 12 },
     primaryBtn: {
         height: 52,
-        backgroundColor: "#000",
+        backgroundColor: "#1e40af",
         borderRadius: 12,
         alignItems: "center",
         justifyContent: "center",
         marginTop: 8,
+        shadowColor: "#1e40af",
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.3,
+        shadowRadius: 8,
+        elevation: 5,
     },
     primaryBtnText: {
         color: "#fff",
@@ -295,7 +300,7 @@ const styles = StyleSheet.create({
     },
     divider: {
         textAlign: "center",
-        color: "#999",
+        color: "#94a3b8",
         fontSize: 14,
         marginBottom: 16,
     },
@@ -306,7 +311,7 @@ const styles = StyleSheet.create({
         marginTop: 24,
     },
     footerText: { fontSize: 15, color: "#666" },
-    signInLink: { fontSize: 15, color: "#000", fontWeight: "700" },
+    signInLink: { fontSize: 15, color: "#1e40af", fontWeight: "700" },
 });
 
 export default Register;

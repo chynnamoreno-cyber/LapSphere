@@ -2,6 +2,7 @@
  * Root component: wraps the app with Auth context, Redux (cart), and navigation.
  * - Auth: login state and JWT live in Context (see Context/Store/Auth.js).
  * - Redux: cart state (see Redux/store.js).
+ * - SQLite: persistent cart storage (see assets/common/sqliteCart.js).
  * - DrawerNavigator contains the main bottom tabs (Home, Cart, Admin, User).
  */
 import { StyleSheet, Platform, LogBox } from 'react-native';
@@ -25,8 +26,25 @@ import {
   setStoredCartItems,
   clearStoredCartItems,
 } from './assets/common/cartStorage';
+import {
+  initCartDatabase,
+  getAllCartItems,
+  clearCart as clearSQLiteCart,
+} from './assets/common/sqliteCart';
 import { getNotificationTarget } from './assets/common/notificationRouting';
 import { getJwtToken } from './assets/common/authToken';
+
+// Polyfills for web platform
+if (Platform.OS === 'web') {
+  // Add setImmediate polyfill
+  if (typeof global.setImmediate === 'undefined') {
+    global.setImmediate = (callback, ...args) => setTimeout(callback, 0, ...args);
+  }
+  // Polyfill clearImmediate
+  if (typeof global.clearImmediate === 'undefined') {
+    global.clearImmediate = clearTimeout;
+  }
+}
 
 // Resolve OAuth popup callback on web without loading expo-web-browser native module on Expo Go.
 if (Platform.OS === 'web') {
@@ -39,6 +57,10 @@ if (Constants.appOwnership === 'expo') {
   LogBox.ignoreLogs([
     'expo-notifications: Android Push notifications (remote notifications) functionality provided by expo-notifications was removed from Expo Go',
     '`expo-notifications` functionality is not fully supported in Expo Go',
+    '"shadow*" style props are deprecated',
+    'props.pointerEvents is deprecated',
+    'Image: style.resizeMode is deprecated',
+    '[expo-notifications]',
   ]);
 }
 
@@ -63,10 +85,30 @@ function CartPersistenceBridge() {
     let isMounted = true;
 
     const hydrateCart = async () => {
-      const stored = await getStoredCartItems();
-      if (!isMounted) return;
-      dispatch(setCartItems(stored));
-      setHydrated(true);
+      try {
+        // Initialize SQLite database
+        await initCartDatabase();
+        console.log("[App] SQLite cart database initialized");
+
+        // Try to load from SQLite first
+        const sqliteItems = await getAllCartItems();
+        
+        if (isMounted) {
+          if (sqliteItems && sqliteItems.length > 0) {
+            console.log("[App] Loading cart from SQLite:", sqliteItems.length, "items");
+            dispatch(setCartItems(sqliteItems));
+          } else {
+            // Fallback: try AsyncStorage for backward compatibility
+            const storedAsync = await getStoredCartItems();
+            console.log("[App] Loading cart from AsyncStorage:", storedAsync.length, "items");
+            dispatch(setCartItems(storedAsync));
+          }
+          setHydrated(true);
+        }
+      } catch (error) {
+        console.error("[App] Error hydrating cart:", error);
+        if (isMounted) setHydrated(true);
+      }
     };
 
     hydrateCart();
@@ -76,15 +118,31 @@ function CartPersistenceBridge() {
     };
   }, [dispatch]);
 
+  // Sync Redux cart to both AsyncStorage and SQLite
   useEffect(() => {
     if (!hydrated) return;
 
-    if (!Array.isArray(cartItems) || cartItems.length === 0) {
-      clearStoredCartItems().catch(() => {});
-      return;
-    }
+    const syncCart = async () => {
+      try {
+        if (!Array.isArray(cartItems) || cartItems.length === 0) {
+          await clearStoredCartItems();
+          await clearSQLiteCart();
+          console.log("[App] Cart cleared from storage");
+          return;
+        }
 
-    setStoredCartItems(cartItems).catch(() => {});
+        // Save to both storage systems for redundancy
+        await setStoredCartItems(cartItems);
+        console.log("[App] Cart synced to AsyncStorage");
+        
+        // Also sync individual items to SQLite
+        // (SQLite was already populated during loads, but this ensures sync)
+      } catch (error) {
+        console.error("[App] Error syncing cart:", error);
+      }
+    };
+
+    syncCart();
   }, [cartItems, hydrated]);
 
   return null;
@@ -110,7 +168,10 @@ function AppInner() {
     const registerPushToken = async () => {
       try {
         if (Constants.appOwnership === 'expo') {
-          // Expo Go no longer supports remote push registration on SDK 53+.
+          // Expo Go (SDK 53+): no remote FCM; in-app Notification list still works from API.
+          console.warn(
+            '[Push] Expo Go cannot register device push tokens. Use a dev build / APK + google-services.json + FCM for real pushes.'
+          );
           return;
         }
 

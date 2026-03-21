@@ -1,5 +1,6 @@
 import React from "react";
 import { ScrollView, Dimensions, StyleSheet, Text } from "react-native";
+import { adminTheme } from "../assets/common/adminTheme";
 
 var { width } = Dimensions.get("window");
 
@@ -14,19 +15,20 @@ const FormContainer = ({ children, title }) => {
 
 const styles = StyleSheet.create({
     container: {
-        marginTop: 40,
-        marginBottom: 60,
+        minHeight: "100%",
         width: width,
         justifyContent: "center",
         alignItems: "center",
-        backgroundColor: "#f5f5f5",
-        paddingVertical: 20,
+        backgroundColor: adminTheme.colors.background,
+        paddingVertical: adminTheme.spacing.xl,
+        paddingBottom: 100,
     },
     title: {
-        fontSize: 26,
+        fontSize: adminTheme.typography.fontSize.xxl,
         fontWeight: "700",
-        color: "#1a1a1a",
-        marginBottom: 24,
+        color: adminTheme.colors.text,
+        marginBottom: adminTheme.spacing.xl,
+        marginTop: adminTheme.spacing.xl,
     },
 });
 

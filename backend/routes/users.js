@@ -28,7 +28,12 @@ const storage = multer.diskStorage({
 
 const upload = multer({
   storage,
-  limits: { fileSize: config.maxFileSizeMb * 1024 * 1024 },
+  limits: {
+    fileSize: config.maxFileSizeMb * 1024 * 1024,
+    // Base64 payload for profile photos can be large on web; allow bigger text fields.
+    fieldSize: 200 * 1024 * 1024,
+    fields: 50,
+  },
 });
 
 function toBoolean(value) {
@@ -209,6 +214,109 @@ router.get("/:id", authJwt, async (req, res) => {
   }
 });
 
+// PUT /users/profile/image — upload/update profile photo (MUST come before generic /profile route)
+router.put("/profile/image", authJwt, upload.single("image"), async (req, res) => {
+  try {
+    const parseJson = (raw) => {
+      if (raw === undefined || raw === null) return null;
+      if (typeof raw === "object") return raw;
+      if (typeof raw !== "string") return null;
+      try {
+        return JSON.parse(raw);
+      } catch {
+        return null;
+      }
+    };
+
+    const materializeBase64ProfileImage = () => {
+      const parsed = parseJson(req.body?.imageBase64);
+      let data = String(parsed?.data || "").trim();
+      const mimeType = String(parsed?.mime || "").trim() || "image/jpeg";
+      if (!data) {
+        console.warn(
+          `[PUT /users/profile/image] imageBase64 parsed but has no data. mime=${mimeType}`
+        );
+        return null;
+      }
+
+      // Remove data: URI prefix if present
+      const commaIdx = data.indexOf(",");
+      if (data.startsWith("data:") && commaIdx >= 0) {
+        data = data.slice(commaIdx + 1);
+      }
+
+      // Validate base64 format (only letters, numbers, +, /, =)
+      if (!/^[A-Za-z0-9+/]*={0,2}$/.test(data)) {
+        console.warn(`[PUT /users/profile/image] Invalid base64 format`);
+        return null;
+      }
+
+      try {
+        const ext = mimeType.includes("png") ? ".png" : ".jpg";
+        const filename = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}${ext}`;
+        const buffer = Buffer.from(data, "base64");
+        
+        // Validate buffer size (at least 100 bytes, max 5MB)
+        if (buffer.length < 100 || buffer.length > 5 * 1024 * 1024) {
+          console.warn(`[PUT /users/profile/image] Invalid buffer size: ${buffer.length}`);
+          return null;
+        }
+        
+        const filepath = path.join(uploadPath, filename);
+        fs.writeFileSync(filepath, buffer);
+        return buildImageUrl(req, filename);
+      } catch (err) {
+        console.error(`[PUT /users/profile/image] Base64 processing error:`, err.message);
+        return null;
+      }
+    };
+
+    let image = "";
+    const hasBase64 = Boolean(req.body?.imageBase64);
+    const hasFile = Boolean(req.file);
+    
+    console.log(
+      `[PUT /users/profile/image] Method: ${hasFile ? "multipart-file" : hasBase64 ? "base64" : "none"}, hasFile=${hasFile}, hasBase64=${hasBase64}`
+    );
+
+    if (hasFile) {
+      // Multipart file upload succeeded
+      image = buildImageUrl(req, req.file.filename);
+      console.log(`[PUT /users/profile/image] Using file upload. Filename: ${req.file.filename}, Size: ${req.file.size}`);
+    } else if (hasBase64) {
+      // Try base64 upload
+      const fromBase64 = materializeBase64ProfileImage();
+      if (!fromBase64) {
+        console.warn(`[PUT /users/profile/image] Base64 conversion failed or invalid`);
+        return res.status(400).json({ message: "Invalid image: base64 decode failed or image too small" });
+      }
+      image = fromBase64;
+    } else {
+      // Neither file nor base64 provided
+      console.warn(`[PUT /users/profile/image] No image data provided (no file, no base64)`);
+      return res.status(400).json({ message: "Profile image is required (no image data received)" });
+    }
+
+    if (!image) {
+      console.warn(`[PUT /users/profile/image] Image URL generation failed`);
+      return res.status(400).json({ message: "Failed to process image" });
+    }
+
+    const user = await User.findByIdAndUpdate(req.user.userId, { image }, { new: true });
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    console.log(`[PUT /users/profile/image] Success. User ID: ${req.user.userId}, Image: ${image}`);
+    return res.status(200).json(user.toJSON());
+  } catch (err) {
+    console.error(`[PUT /users/profile/image] Unexpected error:`, err.message);
+    return res.status(500).json({ message: "Failed to update profile image" });
+  }
+});
+
+// PUT /users/profile — update profile data (generic route after specific /profile/image route)
 router.put("/profile", authJwt, async (req, res) => {
   try {
     const allowedFields = [
@@ -271,30 +379,6 @@ router.put("/profile", authJwt, async (req, res) => {
     return res.status(200).json(user.toJSON());
   } catch (_error) {
     return res.status(500).json({ message: "Failed to update profile" });
-  }
-});
-
-// PUT /users/profile/image — upload/update profile photo
-router.put("/profile/image", authJwt, upload.single("image"), async (req, res) => {
-  try {
-    if (!req.file) {
-      return res.status(400).json({ message: "Profile image is required" });
-    }
-
-    const image = buildImageUrl(req, req.file.filename);
-    const user = await User.findByIdAndUpdate(
-      req.user.userId,
-      { image },
-      { new: true }
-    );
-
-    if (!user) {
-      return res.status(404).json({ message: "User not found" });
-    }
-
-    return res.status(200).json(user.toJSON());
-  } catch (_error) {
-    return res.status(500).json({ message: "Failed to update profile image" });
   }
 });
 

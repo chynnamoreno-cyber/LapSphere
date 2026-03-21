@@ -7,40 +7,40 @@ import {
     TextInput,
     StyleSheet,
     ActivityIndicator,
+    TouchableOpacity,
 } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import EasyButton from "../../Shared/StyledComponents/EasyButton";
 import baseURL from "../../assets/common/baseurl";
 import axios from "axios";
 import { getJwtToken } from "../../assets/common/authToken";
+import { adminTheme } from "../../assets/common/adminTheme";
 
 var { width } = Dimensions.get("window");
 
 const Item = ({ item, onEdit, onDelete, isDeleting }) => (
     <View style={styles.item}>
-        <Text>{item.name}</Text>
+        <View style={styles.itemContent}>
+            <Ionicons name="folder-outline" size={20} color={adminTheme.colors.primaryLight} />
+            <Text style={styles.itemName}>{item.name}</Text>
+        </View>
         <View style={styles.itemActions}>
-            <View>
-                <EasyButton
-                    primary
-                    medium
-                    onPress={() => onEdit(item)}
-                >
-                    <Text style={{ color: "white", fontWeight: "bold" }}>Edit</Text>
-                </EasyButton>
-            </View>
-            <View style={styles.actionButton}>
-                <EasyButton
-                    danger
-                    medium
-                    onPress={() => onDelete(item.id || item._id)}
-                >
-                    {isDeleting ? (
-                        <ActivityIndicator color="white" size="small" />
-                    ) : (
-                        <Text style={{ color: "white", fontWeight: "bold" }}>Delete</Text>
-                    )}
-                </EasyButton>
-            </View>
+            <TouchableOpacity
+                style={styles.actionIcon}
+                onPress={() => onEdit(item)}
+            >
+                <Ionicons name="pencil-outline" size={18} color={adminTheme.colors.primaryLight} />
+            </TouchableOpacity>
+            <TouchableOpacity
+                style={styles.actionIcon}
+                onPress={() => onDelete(item.id || item._id)}
+            >
+                {isDeleting ? (
+                    <ActivityIndicator color={adminTheme.colors.error} size="small" />
+                ) : (
+                    <Ionicons name="trash-outline" size={18} color={adminTheme.colors.error} />
+                )}
+            </TouchableOpacity>
         </View>
     </View>
 );
@@ -114,8 +114,8 @@ const Categories = () => {
     };
 
     return (
-        <View style={{ position: "relative", height: "100%" }}>
-            <View style={{ marginBottom: 60 }}>
+        <View style={styles.container}>
+            <View style={styles.listContainer}>
                 <FlatList
                     data={categories}
                     renderItem={({ item, index }) => (
@@ -128,79 +128,153 @@ const Categories = () => {
                         />
                     )}
                     keyExtractor={(item) => String(item.id || item._id)}
+                    ListEmptyComponent={
+                        <View style={styles.emptyState}>
+                            <Ionicons name="folder-open-outline" size={48} color={adminTheme.colors.borderLight} />
+                            <Text style={styles.emptyText}>No categories yet</Text>
+                        </View>
+                    }
                 />
             </View>
             <View style={styles.bottomBar}>
-                <View><Text>{editingId ? "Update Category" : "Add Category"}</Text></View>
-                <View style={{ width: width / 2.5 }}>
+                <View style={styles.barTitleContainer}>
+                    <Ionicons name="add-circle-outline" size={20} color={adminTheme.colors.primaryLight} />
+                    <Text style={styles.barTitle}>{editingId ? "Update Category" : "Add Category"}</Text>
+                </View>
+                <View style={styles.inputContainer}>
                     <TextInput
                         value={categoryName}
                         style={styles.input}
                         onChangeText={setCategoryName}
                         placeholder="Category name"
+                        placeholderTextColor={adminTheme.colors.textTertiary}
                     />
                 </View>
-                <View>
+                <View style={styles.buttonsRow}>
                     <EasyButton medium primary onPress={submitCategory}>
                         {isSubmitting ? (
-                            <ActivityIndicator color="white" size="small" />
+                            <ActivityIndicator color={adminTheme.colors.text} size="small" />
                         ) : (
-                            <Text style={{ color: "white", fontWeight: "bold" }}>
-                                {editingId ? "Update" : "Submit"}
+                            <Text style={styles.buttonLabel}>
+                                {editingId ? "Update" : "Add"}
                             </Text>
                         )}
                     </EasyButton>
-                </View>
-                {editingId ? (
-                    <View>
+                    {editingId ? (
                         <EasyButton medium secondary onPress={resetEdit}>
-                            <Text style={{ color: "white", fontWeight: "bold" }}>Cancel</Text>
+                            <Text style={styles.buttonLabel}>Cancel</Text>
                         </EasyButton>
-                    </View>
-                ) : null}
+                    ) : null}
+                </View>
             </View>
         </View>
     );
 };
 
 const styles = StyleSheet.create({
-    bottomBar: {
-        backgroundColor: "white",
-        width: width,
-        height: 60,
-        padding: 2,
-        flexDirection: "row",
+    container: {
+        position: "relative",
+        height: "100%",
+        backgroundColor: adminTheme.colors.background,
+    },
+    listContainer: {
+        marginBottom: 120,
+        paddingBottom: adminTheme.spacing.lg,
+    },
+    emptyState: {
+        height: 300,
+        justifyContent: "center",
         alignItems: "center",
-        justifyContent: "space-between",
+        gap: adminTheme.spacing.md,
+    },
+    emptyText: {
+        color: adminTheme.colors.textTertiary,
+        fontSize: adminTheme.typography.fontSize.base,
+    },
+    bottomBar: {
+        backgroundColor: adminTheme.colors.surface,
+        width: width,
+        minHeight: 120,
+        padding: adminTheme.spacing.md,
+        borderTopWidth: 2,
+        borderTopColor: adminTheme.colors.border,
+        flexDirection: "column",
+        gap: adminTheme.spacing.md,
         position: "absolute",
         bottom: 0,
         left: 0,
     },
+    barTitleContainer: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: adminTheme.spacing.sm,
+    },
+    barTitle: {
+        color: adminTheme.colors.primaryLight,
+        fontWeight: "600",
+        fontSize: adminTheme.typography.fontSize.base,
+    },
+    inputContainer: {
+        width: "100%",
+    },
     input: {
-        height: 40,
-        borderColor: "gray",
-        borderWidth: 1,
+        height: 44,
+        borderColor: adminTheme.colors.border,
+        borderWidth: 1.5,
+        borderRadius: adminTheme.radius.md,
+        paddingHorizontal: adminTheme.spacing.md,
+        backgroundColor: adminTheme.colors.background,
+        color: adminTheme.colors.text,
+    },
+    buttonsRow: {
+        flexDirection: "row",
+        gap: adminTheme.spacing.md,
+        justifyContent: "center",
+    },
+    buttonLabel: {
+        color: adminTheme.colors.text,
+        fontWeight: "bold",
+        fontSize: adminTheme.typography.fontSize.sm,
     },
     item: {
         shadowColor: "#000",
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.2,
-        shadowRadius: 1,
-        elevation: 1,
-        padding: 5,
-        margin: 5,
-        backgroundColor: "white",
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.1,
+        shadowRadius: 2,
+        elevation: 2,
+        padding: adminTheme.spacing.md,
+        margin: adminTheme.spacing.md,
+        backgroundColor: adminTheme.colors.surface,
         flexDirection: "row",
         alignItems: "center",
         justifyContent: "space-between",
-        borderRadius: 5,
+        borderRadius: adminTheme.radius.md,
+        borderLeftWidth: 4,
+        borderLeftColor: adminTheme.colors.primaryLight,
+    },
+    itemContent: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: adminTheme.spacing.md,
+        flex: 1,
+    },
+    itemName: {
+        color: adminTheme.colors.text,
+        fontWeight: "600",
+        fontSize: adminTheme.typography.fontSize.base,
     },
     itemActions: {
         flexDirection: "row",
         alignItems: "center",
+        gap: adminTheme.spacing.md,
+    },
+    actionIcon: {
+        padding: adminTheme.spacing.sm,
+        borderRadius: adminTheme.radius.md,
+        backgroundColor: adminTheme.colors.surfaceLight,
     },
     actionButton: {
-        marginLeft: 8,
+        marginLeft: adminTheme.spacing.md,
     },
 });
 

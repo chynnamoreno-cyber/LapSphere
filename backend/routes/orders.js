@@ -4,9 +4,73 @@ const authJwt = require("../middleware/authJwt");
 const Order = require("../models/Order");
 const Review = require("../models/Review");
 const User = require("../models/User");
+const Product = require("../models/Product");
+const StockAlert = require("../models/StockAlert");
+const Notification = require("../models/Notification");
 const { sendToTokens } = require("../services/notifications");
 
 const router = express.Router();
+
+// Helper function to notify admins
+async function notifyAdmins(title, body, data = {}) {
+  try {
+    const admins = await User.find(
+      { isAdmin: true, pushToken: { $ne: "" } },
+      "pushToken pushTokenType"
+    ).lean();
+    
+    if (!admins.length) {
+      console.log("[notifyAdmins] No admins with push tokens found");
+      return;
+    }
+
+    const tokens = admins
+      .filter((a) => a.pushToken && a.pushToken.trim() !== "")
+      .map((a) => ({ token: a.pushToken, type: a.pushTokenType || "fcm" }));
+
+    console.log(`[notifyAdmins] Sending to ${tokens.length} admin(s): "${title}"`);
+    await sendToTokens(tokens, { title, body, data });
+  } catch (error) {
+    console.error("[notifyAdmins] Error:", error.message);
+  }
+}
+
+// Helper function to notify user about order status and save to database (no email)
+async function notifyUserOrderStatus(userId, orderId, status, additionalData = {}) {
+  try {
+    if (!userId || !orderId) return;
+
+    // Create notification in database
+    const statusLabel = {
+      pending: "Order Confirmed",
+      shipped: "Order Shipped",
+      delivered: "Order Delivered",
+      cancelled: "Order Cancelled",
+    }[status] || "Order Updated";
+
+    const statusMessage = {
+      pending: "Your order has been confirmed and is being prepared.",
+      shipped: "Your order is on its way!",
+      delivered: "Your order has been delivered. Thank you!",
+      cancelled: "Your order has been cancelled.",
+    }[status] || `Your order status is now: ${status}`;
+
+    // Save to database
+    await Notification.create({
+      user: userId,
+      type: "order_status",
+      title: statusLabel,
+      message: statusMessage,
+      orderId: orderId,
+      orderStatus: status,
+      data: additionalData,
+    });
+
+    console.log(`[notifyUserOrderStatus] Notification saved for user ${userId}, order ${orderId}, status ${status}`);
+  } catch (error) {
+    console.error("[notifyUserOrderStatus] Error:", error.message);
+  }
+}
 
 const STATUS = {
   PENDING: "pending",
@@ -127,15 +191,146 @@ router.post("/", authJwt, async (req, res) => {
       dateOrdered: new Date(),
     });
 
+    // Decrement product stock and check for stock alerts
+    for (const item of mappedItems) {
+      try {
+        const product = await Product.findById(item.product);
+        if (product) {
+          const previousStock = product.countInStock;
+          product.countInStock = Math.max(0, product.countInStock - item.quantity);
+          await product.save();
+          
+          console.log(`[Stock Update] Product: ${product.name}, Previous: ${previousStock}, New: ${product.countInStock}`);
+
+          // Check if stock is now at or below threshold (10 items)
+          if (product.countInStock <= 10 && product.countInStock > 0) {
+            // Check if alert already exists for this product
+            const existingAlert = await StockAlert.findOne({
+              product: product._id,
+              resolved: false,
+              type: "low",
+            });
+
+            if (!existingAlert) {
+              // Create stock alert
+              await StockAlert.create({
+                product: product._id,
+                stockLevel: product.countInStock,
+                threshold: 10,
+                type: "low",
+                resolved: false,
+              });
+              
+              console.log(`[Stock Alert] Low stock alert created for ${product.name} (stock: ${product.countInStock})`);
+            }
+          } else if (product.countInStock === 0 && previousStock > 0) {
+            // Create alert for out of stock
+            const existingAlert = await StockAlert.findOne({
+              product: product._id,
+              resolved: false,
+              type: "out_of_stock",
+            });
+
+            if (!existingAlert) {
+              await StockAlert.create({
+                product: product._id,
+                stockLevel: 0,
+                threshold: 10,
+                type: "out_of_stock",
+                resolved: false,
+              });
+              
+              console.log(`[Stock Alert] Out of stock alert created for ${product.name}`);
+            }
+          }
+        }
+      } catch (err) {
+        console.error(`[orders] Error updating stock for product ${item.product}:`, err.message);
+      }
+    }
+
+    // Notify admins about stock alerts
+    try {
+      const admins = await User.find({ isAdmin: true }, "pushToken pushTokenType").lean();
+      console.log(`[Stock Notification] Found ${admins.length} admins`);
+      
+      const adminTokens = admins
+        .filter((a) => a.pushToken && a.pushToken.trim() !== "")
+        .map((a) => ({ token: a.pushToken, type: a.pushTokenType || "fcm" }));
+      
+      console.log(`[Stock Notification] Admin tokens with push: ${adminTokens.length}`);
+      
+      if (adminTokens.length > 0) {
+        // Get all unresolved stock alerts
+        const alerts = await StockAlert.find({ resolved: false })
+          .populate("product", "name countInStock")
+          .sort({ createdAt: -1 })
+          .limit(10);
+        
+        if (alerts.length > 0) {
+          // Batch all alerts into ONE notification per admin
+          const alertSummaryLines = alerts.map((alert) => {
+            const product = alert.product;
+            return alert.type === "out_of_stock"
+              ? `🚨 ${product.name} - OUT OF STOCK`
+              : `⚠️ ${product.name} - ${product.countInStock} items left`;
+          });
+
+          const alertSummary = alertSummaryLines.join("\n");
+          const alertCount = alerts.length;
+
+          console.log(`[Stock Notification] Batching ${alertCount} alerts into single notification`);
+          
+          await sendToTokens(adminTokens, {
+            title: `Stock Alerts (${alertCount})`,
+            body: alertSummary,
+            data: { 
+              route: "stock-alerts",
+              alertCount: String(alertCount),
+              type: "stock_alert_batch"
+            },
+          });
+        }
+      }
+    } catch (err) {
+      console.error(`[orders] Error sending stock notifications:`, err.message);
+    }
+
+    // Notify admins about new order
     const admins = await User.find({ isAdmin: true, pushToken: { $ne: "" } }, "pushToken pushTokenType").lean();
     const adminTokens = admins
       .filter((a) => a.pushToken)
       .map((a) => ({ token: a.pushToken, type: a.pushTokenType || "fcm" }));
     await sendToTokens(adminTokens, {
       title: "New order placed",
-      body: `Order ${order.id} has been placed.`,
+      body: `Order #${order.id} for $${totalPrice} has been placed.`,
       data: { orderId: order.id, route: "admin-orders" },
     });
+
+    // Notify the customer about order confirmation
+    const customer = await User.findById(req.user.userId).lean();
+    if (customer?.pushToken) {
+      // Save notification to database
+      await Notification.create({
+        user: req.user.userId,
+        type: "order_status",
+        title: "Order Confirmation",
+        message: `Your order #${order.id} for $${totalPrice} has been confirmed! We'll update you soon.`,
+        orderId: order._id,
+        orderStatus: "pending",
+        data: { orderId: order.id },
+      });
+
+      // Send push notification
+      await sendToTokens(
+        [{ token: customer.pushToken, type: customer.pushTokenType || "fcm" }],
+        {
+          title: "Order Confirmation",
+          body: `Your order #${order.id} for $${totalPrice} has been confirmed! We'll update you soon.`,
+          data: { orderId: order.id, status: "pending", route: "order-details" },
+        }
+      );
+    }
 
     return res.status(201).json(order);
   } catch (error) {
@@ -189,7 +384,7 @@ router.get("/:id", authJwt, async (req, res) => {
 // PUT /orders/:id — admin or owner updates status with rules
 router.put("/:id", authJwt, async (req, res) => {
   try {
-    const { status } = req.body;
+    const { status, cancellationReason } = req.body;
 
     if (!status) {
       return res.status(400).json({ message: "Status is required" });
@@ -221,14 +416,14 @@ router.put("/:id", authJwt, async (req, res) => {
 
     const adminTransitions = {
       [STATUS.PENDING]: [STATUS.SHIPPED, STATUS.CANCELLED],
-      [STATUS.SHIPPED]: [STATUS.CANCELLED],
+      [STATUS.SHIPPED]: [STATUS.DELIVERED, STATUS.CANCELLED],
       [STATUS.DELIVERED]: [],
       [STATUS.CANCELLED]: [],
     };
 
     const userTransitions = {
       [STATUS.PENDING]: [STATUS.CANCELLED],
-      [STATUS.SHIPPED]: [STATUS.DELIVERED, STATUS.CANCELLED],
+      [STATUS.SHIPPED]: [STATUS.CANCELLED],
       [STATUS.DELIVERED]: [],
       [STATUS.CANCELLED]: [],
     };
@@ -241,26 +436,184 @@ router.put("/:id", authJwt, async (req, res) => {
       return res.status(403).json({ message: "Status change not allowed" });
     }
 
+    // Prepare update payload
+    const updatePayload = {
+      statusUpdatedAt: new Date(),
+    };
+
+    // Handle user cancellation request for SHIPPED orders
+    if (!req.user?.isAdmin && desiredStatus === STATUS.CANCELLED && currentStatus === STATUS.SHIPPED) {
+      // User requests cancellation of a shipped order - requires admin approval
+      if (!cancellationReason) {
+        return res.status(400).json({ message: "Cancellation reason is required for shipped orders" });
+      }
+      updatePayload.cancellationApprovalStatus = "pending_approval";
+      updatePayload.cancellationReason = String(cancellationReason).trim();
+      // Don't change the status yet, keep it as "shipped" until admin approves
+    } else {
+      // Admin cancellation or user cancellation of pending order - immediate
+      updatePayload.status = desiredStatus;
+      if (desiredStatus === STATUS.CANCELLED && cancellationReason) {
+        updatePayload.cancellationReason = String(cancellationReason).trim();
+      }
+    }
+
     const updated = await Order.findByIdAndUpdate(
       req.params.id,
-      {
-        status: desiredStatus,
-      },
+      updatePayload,
       { new: true }
-    ).populate("user", "id name email");
+    ).populate("user", "id name email pushToken pushTokenType");
 
-    const recipient = await User.findById(existing.user).lean();
+    // Notify the customer about status change
+    const recipient = updated.user;
     if (recipient?.pushToken) {
-      await sendToTokens([{ token: recipient.pushToken, type: recipient.pushTokenType || "fcm" }], {
-        title: "Order status updated",
-        body: `Order ${updated.id} is now ${desiredStatus}.`,
-        data: { orderId: updated.id, status: desiredStatus, route: "order-details" },
-      });
+      let notificationTitle = "Order status updated";
+      let notificationBody = `Order #${updated.id || updated._id} is now ${desiredStatus}.`;
+
+      if (updatePayload.cancellationApprovalStatus === "pending_approval") {
+        notificationTitle = "Cancellation Request Received";
+        notificationBody = `Your cancellation request for Order #${updated.id || updated._id} is pending admin approval.`;
+      } else if (desiredStatus === STATUS.CANCELLED && updatePayload.cancellationReason) {
+        notificationBody = `Order #${updated.id || updated._id} has been cancelled. Reason: ${updatePayload.cancellationReason}`;
+      } else if (desiredStatus === STATUS.SHIPPED) {
+        notificationBody = `Order #${updated.id || updated._id} has been shipped! Track your delivery.`;
+      } else if (desiredStatus === STATUS.DELIVERED) {
+        notificationBody = `Order #${updated.id || updated._id} has been delivered! Thank you for your purchase.`;
+      }
+
+      await sendToTokens(
+        [{ token: recipient.pushToken, type: recipient.pushTokenType || "fcm" }],
+        {
+          title: notificationTitle,
+          body: notificationBody,
+          data: {
+            orderId: updated.id || updated._id,
+            status: desiredStatus,
+            route: "order-details",
+            reason: updatePayload.cancellationReason || null,
+          },
+        }
+      );
+
+      // Save notification to database (no email)
+      if (desiredStatus !== currentStatus) {
+        await notifyUserOrderStatus(
+          recipient.id || recipient._id,
+          updated.id || updated._id,
+          desiredStatus,
+          { reason: updatePayload.cancellationReason || null }
+        );
+      }
+    } else {
+      // Even without push token, save to database
+      if (desiredStatus !== currentStatus) {
+        await notifyUserOrderStatus(
+          recipient?.id || recipient?._id,
+          updated.id || updated._id,
+          desiredStatus,
+          { reason: updatePayload.cancellationReason || null }
+        );
+      }
+    }
+
+    // Notify admins about cancellations and cancellation requests
+    if (desiredStatus === STATUS.CANCELLED || updatePayload.cancellationApprovalStatus === "pending_approval") {
+      const adminNotifData = {
+        orderId: updated.id || updated._id,
+        userId: updated.user?.id || updated.user?._id,
+        route: "admin-orders",
+      };
+
+      if (updatePayload.cancellationApprovalStatus === "pending_approval") {
+        // User requested cancellation of shipped order
+        await notifyAdmins(
+          "🚨 Cancellation Request",
+          `User requested cancellation of Order #${updated.id || updated._id} (${updated.user?.name || "Customer"}). Reason: ${updatePayload.cancellationReason}`,
+          adminNotifData
+        );
+      } else if (desiredStatus === STATUS.CANCELLED && !req.user?.isAdmin) {
+        // User cancelled pending order
+        await notifyAdmins(
+          "❌ Order Cancelled",
+          `User cancelled Order #${updated.id || updated._id} (${updated.user?.name || "Customer"}). Reason: ${updatePayload.cancellationReason || "No reason provided"}`,
+          adminNotifData
+        );
+      }
     }
 
     return res.status(200).json(updated);
   } catch (_error) {
+    console.error("[orders] PUT error:", _error.message);
     return res.status(500).json({ message: "Failed to update order" });
+  }
+});
+
+// PUT /orders/:id/approve-cancellation — admin approves or rejects user's cancellation request
+router.put("/:id/approve-cancellation", authJwt, async (req, res) => {
+  try {
+    if (!req.user?.isAdmin) {
+      return res.status(403).json({ message: "Only admins can approve cancellations" });
+    }
+
+    const { approve } = req.body;
+
+    if (approve === undefined) {
+      return res.status(400).json({ message: "Approve parameter is required (true/false)" });
+    }
+
+    const existing = await Order.findById(req.params.id);
+    if (!existing) return res.status(404).json({ message: "Order not found" });
+
+    if (existing.cancellationApprovalStatus !== "pending_approval") {
+      return res.status(409).json({ message: "No pending cancellation request for this order" });
+    }
+
+    const updatePayload = {
+      statusUpdatedAt: new Date(),
+    };
+
+    if (approve === true) {
+      updatePayload.status = STATUS.CANCELLED;
+      updatePayload.cancellationApprovalStatus = "approved";
+    } else {
+      updatePayload.cancellationApprovalStatus = "none";
+    }
+
+    const updated = await Order.findByIdAndUpdate(
+      req.params.id,
+      updatePayload,
+      { new: true }
+    ).populate("user", "id name email pushToken pushTokenType");
+
+    // Notify the customer about approval/rejection
+    const recipient = updated.user;
+    if (recipient?.pushToken) {
+      const notificationTitle = approve ? "Cancellation Approved" : "Cancellation Rejected";
+      const notificationBody = approve
+        ? `Your cancellation request for Order #${updated.id || updated._id} has been approved.`
+        : `Your cancellation request for Order #${updated.id || updated._id} has been rejected.`;
+
+      await sendToTokens(
+        [{ token: recipient.pushToken, type: recipient.pushTokenType || "fcm" }],
+        {
+          title: notificationTitle,
+          body: notificationBody,
+          data: {
+            orderId: updated.id || updated._id,
+            status: updated.status,
+            route: "order-details",
+          },
+        }
+      );
+    }
+
+    // Log admin action
+    console.log(`[Admin Action] ${approve ? "Approved" : "Rejected"} cancellation request for Order #${updated.id || updated._id} by admin ${req.user.userId}`);
+
+    return res.status(200).json(updated);
+  } catch (_error) {
+    console.error("[orders] approve-cancellation error:", _error.message);
+    return res.status(500).json({ message: "Failed to process cancellation approval" });
   }
 });
 

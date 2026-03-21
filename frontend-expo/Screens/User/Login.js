@@ -51,12 +51,12 @@ const Login = () => {
                 showsVerticalScrollIndicator={false}
             >
                 <View style={styles.logoBox}>
-                    <Ionicons name="bag-handle-outline" size={44} color="#fff" />
+                    <Ionicons name="laptop" size={44} color="#fff" />
                 </View>
-                <Text style={styles.brandName}>PeakPlay</Text>
+                <Text style={styles.brandName}>LapSphere</Text>
                 <Text style={styles.title}>Welcome Back</Text>
                 <Text style={styles.subtitle}>
-                Log in to your PeakPlay account using email or social networks
+                Log in to explore premium laptops and gear
                 </Text>
 
                 <SocialLoginButtons
@@ -132,18 +132,24 @@ const styles = StyleSheet.create({
         width: 72,
         height: 72,
         borderRadius: 16,
-        backgroundColor: "#000",
+        backgroundColor: "#1e40af",
         alignItems: "center",
         justifyContent: "center",
         alignSelf: "center",
         marginBottom: 12,
+        shadowColor: "#1e40af",
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.25,
+        shadowRadius: 8,
+        elevation: 5,
     },
     brandName: {
-        fontSize: 24,
-        fontWeight: "700",
-        color: "#000",
+        fontSize: 28,
+        fontWeight: "800",
+        color: "#1e40af",
         textAlign: "center",
         marginBottom: 24,
+        letterSpacing: 0.5,
     },
     title: {
         fontSize: 28,
@@ -158,13 +164,13 @@ const styles = StyleSheet.create({
     },
     divider: {
         textAlign: "center",
-        color: "#999",
+        color: "#94a3b8",
         fontSize: 14,
         marginVertical: 20,
     },
     form: { marginTop: 8 },
     forgetLink: { alignSelf: "flex-end", marginBottom: 16 },
-    forgetText: { fontSize: 14, color: "#000", fontWeight: "600" },
+    forgetText: { fontSize: 14, color: "#1e40af", fontWeight: "600" },
     errorText: {
         color: "#d32f2f",
         marginBottom: 12,
@@ -173,11 +179,16 @@ const styles = StyleSheet.create({
     loader: { marginVertical: 12 },
     primaryBtn: {
         height: 52,
-        backgroundColor: "#000",
+        backgroundColor: "#1e40af",
         borderRadius: 12,
         alignItems: "center",
         justifyContent: "center",
         marginTop: 8,
+        shadowColor: "#1e40af",
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.3,
+        shadowRadius: 8,
+        elevation: 5,
     },
     primaryBtnText: {
         color: "#fff",
@@ -191,7 +202,7 @@ const styles = StyleSheet.create({
         marginTop: 32,
     },
     footerText: { fontSize: 15, color: "#666" },
-    registerLink: { fontSize: 15, color: "#000", fontWeight: "700" },
+    registerLink: { fontSize: 15, color: "#1e40af", fontWeight: "700" },
 });
 
 export default Login;

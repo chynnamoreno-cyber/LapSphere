@@ -127,17 +127,22 @@ async function sendToTokens(tokens, payload) {
   // Separate tokens by type
   const fcmTokens = [];
   const expoTokens = [];
+  const serverTokens = [];
 
   for (const token of tokens) {
     if (typeof token === "object" && token.token) {
-      // { token: "...", type: "fcm"|"expo" }
-      if (token.type === "expo" || token.token.startsWith("ExponentPushToken")) {
+      // { token: "...", type: "fcm"|"expo"|"server" }
+      if (token.type === "server") {
+        serverTokens.push(token.token);
+      } else if (token.type === "expo" || token.token.startsWith("ExponentPushToken")) {
         expoTokens.push(token.token);
       } else {
         fcmTokens.push(token.token);
       }
     } else if (typeof token === "string") {
-      if (token.startsWith("ExponentPushToken")) {
+      if (token.startsWith("server-")) {
+        serverTokens.push(token);
+      } else if (token.startsWith("ExponentPushToken")) {
         expoTokens.push(token);
       } else {
         fcmTokens.push(token);
@@ -145,7 +150,7 @@ async function sendToTokens(tokens, payload) {
     }
   }
 
-  console.log(`[notifications] Routing: ${fcmTokens.length} FCM, ${expoTokens.length} Expo`);
+  console.log(`[notifications] Routing: ${fcmTokens.length} FCM, ${expoTokens.length} Expo, ${serverTokens.length} Server (placeholder)`);
 
   const promises = [];
   if (fcmTokens.length > 0) promises.push(sendFCM(fcmTokens, title, body, data));

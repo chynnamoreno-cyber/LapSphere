@@ -1,9 +1,10 @@
 import React, { useCallback } from "react";
-import { View, FlatList } from "react-native";
+import { View, FlatList, StyleSheet } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
 import { useDispatch, useSelector } from "react-redux";
 import OrderCard from "../../Shared/OrderCard";
 import { fetchOrders } from "../../Redux/Actions/orderActions";
+import { adminTheme } from "../../assets/common/adminTheme";
 
 const Orders = () => {
     const dispatch = useDispatch();
@@ -19,7 +20,7 @@ const Orders = () => {
     );
 
     return (
-        <View>
+        <View style={styles.container}>
             <FlatList
                 data={orderList}
                 renderItem={({ item }) => (
@@ -31,9 +32,17 @@ const Orders = () => {
                     />
                 )}
                 keyExtractor={(item) => String(item.id || item._id)}
+                scrollEnabled={true}
             />
         </View>
     );
 };
+
+const styles = StyleSheet.create({
+    container: {
+        flex: 1,
+        backgroundColor: adminTheme.colors.background,
+    },
+});
 
 export default Orders;

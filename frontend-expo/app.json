@@ -1,12 +1,12 @@
 {
   "expo": {
-    "name": "frontend-expo",
-    "slug": "frontend-expo",
+    "name": "lapsphere",
+    "slug": "lapsphere",
     "scheme": [
-      "com.peakplay.itcp239.dev",
+      "com.lapsphere.itcp239.dev",
       "com.googleusercontent.apps.1061265006776-8k5hac1d8h9flh8l9pripeh18n9m1fsg"
     ],
-    "owner": "edilynplay",
+    "owner": "kuronini7",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -15,32 +15,40 @@
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+      "backgroundColor": "#020617"
     },
     "ios": {
       "supportsTablet": true
     },
     "android": {
-      "package": "com.peakplay.itcp239.dev",
-      "googleServicesFile": "./google-services.json",
+      "package": "com.lapsphere.itcp239",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "edgeToEdgeEnabled": true
+      "edgeToEdgeEnabled": true,
+      "usesCleartextTraffic": true
     },
     "web": {
       "favicon": "./assets/favicon.png"
     },
     "extra": {
       "eas": {
-        "projectId": "6f747b51-b33e-4c6e-9d11-89bf760ec81a"
-      }
+        "projectId": "bef03e61-bc14-47d0-a447-8684a592ec18"
+      },
+      "apiUrl": "http://192.168.1.36:4000"
     },
     "plugins": [
       "expo-sqlite",
       "expo-secure-store",
-      "expo-web-browser"
+      "expo-web-browser",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png",
+          "color": "#ffffff"
+        }
+      ]
     ]
   }
 }
