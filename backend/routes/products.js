@@ -12,6 +12,11 @@ const StockAlert = require("../models/StockAlert");
 const User = require("../models/User");
 const { sendToTokens } = require("../services/notifications");
 const { sanitizeProfanity } = require("../services/profanityFilter");
+const {
+  isCloudImageStorageEnabled,
+  uploadLocalFileToCloudinary,
+  uploadBase64ToCloudinary,
+} = require("../services/imageStorage");
 const config = require("../config");
 
 const router = express.Router();
@@ -147,7 +152,9 @@ async function updateStockAlerts(product) {
 
 function buildImageUrl(req, filename) {
   if (!filename) return "";
-  return `${req.protocol}://${req.get("host")}/${config.uploadDir}/${filename}`;
+  const forwardedProto = String(req.get("x-forwarded-proto") || "").trim();
+  const protocol = forwardedProto || req.protocol || "http";
+  return `${protocol}://${req.get("host")}/${config.uploadDir}/${filename}`;
 }
 
 function normalizeUploadUrl(value, req) {
@@ -215,7 +222,32 @@ function isHttpUrl(value) {
   return s.startsWith("http://") || s.startsWith("https://");
 }
 
-function materializeBase64Images(raw, req) {
+async function uploadMultipartFilesToStorage(files, req, folderSuffix = "products") {
+  const out = [];
+  for (const file of files || []) {
+    if (isCloudImageStorageEnabled()) {
+      try {
+        const cloudUrl = await uploadLocalFileToCloudinary(file.path, folderSuffix);
+        if (isHttpUrl(cloudUrl)) out.push(cloudUrl);
+      } catch (error) {
+        console.warn("[products] Cloud upload failed for multipart file, falling back to local:", error.message);
+        out.push(buildImageUrl(req, file.filename));
+      } finally {
+        // Clean temporary local file after cloud upload attempt.
+        try {
+          if (file.path && fs.existsSync(file.path)) fs.unlinkSync(file.path);
+        } catch {
+          // Best effort cleanup.
+        }
+      }
+    } else {
+      out.push(buildImageUrl(req, file.filename));
+    }
+  }
+  return out;
+}
+
+async function materializeBase64Images(raw, req, folderSuffix = "products") {
   const arr = parseJsonArray(raw);
   if (!Array.isArray(arr) || arr.length === 0) return [];
 
@@ -229,6 +261,17 @@ function materializeBase64Images(raw, req) {
       data = data.slice(commaIdx + 1);
     }
     const mime = String(entry?.mime || "image/jpeg");
+
+    if (isCloudImageStorageEnabled()) {
+      try {
+        const cloudUrl = await uploadBase64ToCloudinary(data, mime, folderSuffix);
+        if (isHttpUrl(cloudUrl)) written.push(cloudUrl);
+        continue;
+      } catch (error) {
+        console.warn("[products] Cloud upload failed for base64 image, falling back to local:", error.message);
+      }
+    }
+
     const ext = mime.includes("png") ? ".png" : ".jpg";
     const filename = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}${ext}`;
     const buffer = Buffer.from(data, "base64");
@@ -241,33 +284,6 @@ function materializeBase64Images(raw, req) {
     }
   }
   return written;
-}
-
-function parseJsonArray(raw) {
-  if (raw === undefined || raw === null) return null;
-  if (Array.isArray(raw)) return raw;
-  if (typeof raw === "string") {
-    try {
-      const parsed = JSON.parse(raw);
-      return Array.isArray(parsed) ? parsed : null;
-    } catch {
-      return null;
-    }
-  }
-  return null;
-}
-
-function uniqStrings(values) {
-  const out = [];
-  const seen = new Set();
-  for (const v of values || []) {
-    const s = String(v || "").trim();
-    if (!s) continue;
-    if (seen.has(s)) continue;
-    seen.add(s);
-    out.push(s);
-  }
-  return out;
 }
 
 async function refreshProductReviewStats(productId) {
@@ -442,8 +458,8 @@ router.post("/:id/reviews", authJwt, uploadReviewImages, async (req, res) => {
       });
     }
 
-    const uploadedImages = (req.files || []).map((file) => buildImageUrl(req, file.filename));
-    const base64Images = materializeBase64Images(req.body.imagesBase64, req);
+    const uploadedImages = await uploadMultipartFilesToStorage(req.files || [], req, "reviews");
+    const base64Images = await materializeBase64Images(req.body.imagesBase64, req, "reviews");
     const images = [...uploadedImages, ...base64Images].slice(0, 3);
 
     const review = await Review.create({
@@ -553,8 +569,8 @@ async function updateReviewHandler(req, res) {
       }
     }
 
-    const uploadedImages = (req.files || []).map((file) => buildImageUrl(req, file.filename));
-    const base64Images = materializeBase64Images(req.body.imagesBase64, req);
+    const uploadedImages = await uploadMultipartFilesToStorage(req.files || [], req, "reviews");
+    const base64Images = await materializeBase64Images(req.body.imagesBase64, req, "reviews");
     review.images = [...retainedImages, ...uploadedImages, ...base64Images].slice(0, 3);
 
     await review.save();
@@ -632,10 +648,9 @@ router.post("/", authJwt, uploadProductImages, async (req, res) => {
       `[POST /products] files=${incomingFilesCount}, base64=${incomingBase64Count}`
     );
 
-    const fileUrls = (req.files || [])
-      .map((file) => buildImageUrl(req, file.filename))
+    const fileUrls = (await uploadMultipartFilesToStorage(req.files || [], req, "products"))
       .filter(isHttpUrl);
-    const base64Urls = materializeBase64Images(req.body.imagesBase64, req);
+    const base64Urls = await materializeBase64Images(req.body.imagesBase64, req, "products");
     const imageUrls = uniqStrings([...fileUrls, ...base64Urls].filter(isHttpUrl));
     
     // Use first uploaded image as main image, or fallback to provided image field
@@ -671,10 +686,9 @@ router.put("/:id", authJwt, uploadProductImages, async (req, res) => {
             countInStock, rating, numReviews, isFeatured } = req.body;
     
     // Process uploaded images (multipart + optional base64 from mobile/web)
-    const uploadedFileUrls = (req.files || [])
-      .map((file) => buildImageUrl(req, file.filename))
+    const uploadedFileUrls = (await uploadMultipartFilesToStorage(req.files || [], req, "products"))
       .filter(isHttpUrl);
-    const uploadedBase64Urls = materializeBase64Images(req.body.imagesBase64, req);
+    const uploadedBase64Urls = await materializeBase64Images(req.body.imagesBase64, req, "products");
     console.log(
       `[PUT /products] uploaded files=${(req.files || []).length}, base64=${Array.isArray(parseJsonArray(req.body.imagesBase64)) ? parseJsonArray(req.body.imagesBase64).length : 0}`
     );

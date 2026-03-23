@@ -65,6 +65,7 @@ Base path: `/api/v1`
 6. Add all env vars from `.env.example`.
 7. For Firebase Admin credentials in cloud, prefer `FCM_SERVICE_ACCOUNT_JSON` with full JSON content from your Firebase service account key.
 8. Keep `PUSH_NOTIFY_ALL_USERS=true` if you want global push fanout.
+9. For persistent product/review images across deploys, set `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, and `CLOUDINARY_API_SECRET`.
 
 You can also use the included `render.yaml` blueprint.
 
