@@ -12,7 +12,7 @@
 import Constants from "expo-constants";
 import { Platform } from "react-native";
 
-const DEFAULT_LAN_HOST = "http://192.168.1.36:4000";
+const DEFAULT_LAN_HOST = "https://lapsphere.onrender.com";
 
 function normalizeHost(url) {
     if (!url || typeof url !== "string") return null;

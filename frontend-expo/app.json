@@ -37,7 +37,7 @@
       "eas": {
         "projectId": "45098764-05db-4720-bbe3-a5ec5397787d"
       },
-      "apiUrl": "http://192.168.1.27:4000"
+      "apiUrl": "https://lapsphere.onrender.com"
     },
     "plugins": [
       "expo-sqlite",
