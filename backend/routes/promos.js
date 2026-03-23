@@ -138,6 +138,7 @@ router.post("/broadcast", authJwt, async (req, res) => {
     const categoryId = req.body?.categoryId;
     const durationDaysRaw = req.body?.durationDays;
     const durationHoursRaw = req.body?.durationHours;
+    const includeSender = req.body?.includeSender === true || String(req.body?.includeSender).toLowerCase() === "true";
 
     // Parse duration: convert days + hours to total hours
     // Default: 1 day (24 hours)
@@ -214,6 +215,23 @@ router.post("/broadcast", authJwt, async (req, res) => {
     const tokens = recipients
       .filter((user) => user.pushToken)
       .map((user) => ({ token: user.pushToken, type: user.pushTokenType || "fcm" }));
+
+    // Optional: include sender's own device token (useful when admin tests broadcast on same phone).
+    if (includeSender) {
+      const sender = await User.findById(req.user.userId).select("_id pushToken pushTokenType").lean();
+      if (sender?.pushToken && sender.pushToken.trim() !== "") {
+        const senderType = sender.pushTokenType || "fcm";
+        const exists = tokens.some((t) => t.token === sender.pushToken);
+        if (!exists) {
+          tokens.push({ token: sender.pushToken, type: senderType });
+        }
+
+        const alreadyInDbTargets = allCustomers.some((u) => String(u._id) === String(sender._id));
+        if (!alreadyInDbTargets) {
+          allCustomers.push({ _id: sender._id });
+        }
+      }
+    }
 
     console.log(`[promos.broadcast] Recipients with push tokens: ${tokens.length} tokens from ${recipients.length} users`);
 
@@ -350,6 +368,115 @@ router.get("/debug/check-promos", async (req, res) => {
     });
   } catch (error) {
     return res.status(500).json({ message: error.message });
+  }
+});
+
+// POST /promos/test/send-notification — admin test endpoint to send a test notification
+router.post("/test/send-notification", authJwt, async (req, res) => {
+  try {
+    if (!req.user?.isAdmin) {
+      return res.status(403).json({ message: "Admin access required" });
+    }
+
+    const { title = "Test Notification", message = "This is a test push notification", userId } = req.body;
+
+    console.log(`[promos.test] Sending test notification. userId=${userId || "all"}`);
+
+    if (userId) {
+      // Send to specific user
+      console.log(`[promos.test] Looking up user ${userId}...`);
+      const user = await User.findById(userId).select("name email pushToken pushTokenType").lean();
+      if (!user) {
+        console.log(`[promos.test] User not found: ${userId}`);
+        return res.status(404).json({ message: "User not found" });
+      }
+
+      if (!user.pushToken || !user.pushToken.trim()) {
+        console.log(`[promos.test] User ${user.name} (${user.email}) has no push token registered`);
+        return res.status(400).json({ 
+          message: "User has no push token registered",
+          user: { name: user.name, email: user.email }
+        });
+      }
+
+      console.log(`[promos.test] User ${user.name} has ${user.pushTokenType} token: ${user.pushToken.substring(0, 40)}...`);
+      const tokens = [{ token: user.pushToken, type: user.pushTokenType || "fcm" }];
+      
+      console.log(`[promos.test] Sending to 1 device...`);
+      await sendToTokens(tokens, {
+        title,
+        body: message,
+        data: {
+          route: "notifications",
+          type: "test",
+          isTest: "true",
+        },
+      });
+
+      return res.status(200).json({
+        success: true,
+        message: "Test notification sent to user",
+        sent: 1,
+        userId,
+        userInfo: { name: user.name, email: user.email, tokenType: user.pushTokenType },
+      });
+    } else {
+      // Send to all non-admin users with tokens
+      console.log(`[promos.test] Fetching all non-admin users with push tokens...`);
+      
+      const totalUsers = await User.countDocuments({ isAdmin: false });
+      console.log(`[promos.test] Total non-admin users: ${totalUsers}`);
+      
+      const recipients = await User.find(
+        { isAdmin: false, pushToken: { $exists: true, $ne: null, $ne: "" } },
+        "name email pushToken pushTokenType"
+      ).lean();
+
+      console.log(`[promos.test] Users with push tokens: ${recipients.length}`);
+      recipients.forEach((u, i) => {
+        console.log(`  [${i + 1}] ${u.name} (${u.email}): ${u.pushTokenType} - ${u.pushToken.substring(0, 30)}...`);
+      });
+
+      const tokens = recipients
+        .filter((u) => u.pushToken && u.pushToken.trim())
+        .map((u) => ({ token: u.pushToken, type: u.pushTokenType || "fcm" }));
+
+      if (tokens.length === 0) {
+        console.log(`[promos.test] No users with push tokens found! Total users: ${totalUsers}`);
+        return res.status(200).json({
+          success: true,
+          message: "No users with push tokens found",
+          sent: 0,
+          totalUsers,
+          note: "Users need to log in and grant notification permissions to receive push notifications",
+        });
+      }
+
+      console.log(`[promos.test] Sending to ${tokens.length} token(s)...`);
+      await sendToTokens(tokens, {
+        title,
+        body: message,
+        data: {
+          route: "notifications",
+          type: "test",
+          isTest: "true",
+        },
+      });
+
+      return res.status(200).json({
+        success: true,
+        message: "Test notification sent to all users",
+        sent: tokens.length,
+        recipientCount: recipients.length,
+        breakdown: {
+          expo: tokens.filter(t => t.type === 'expo').length,
+          fcm: tokens.filter(t => t.type === 'fcm').length,
+        }
+      });
+    }
+  } catch (error) {
+    console.error("[promos.test]", error.message, error.stack);
+    return res.status(500).json({ message: "Failed to send test notification", error: error.message });
   }
 });
 

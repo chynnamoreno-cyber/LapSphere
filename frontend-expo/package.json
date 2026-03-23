@@ -7,9 +7,12 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
-    "audit:fix": "npm audit fix"
+    "audit:fix": "npm audit fix",
+    "build:apk": "eas build -p android --profile preview",
+    "build:aab": "eas build -p android --profile production"
   },
   "dependencies": {
+    "@firebase/util": "^1.15.0",
     "@react-native-async-storage/async-storage": "^2.2.0",
     "@react-native-community/slider": "5.0.1",
     "@react-native-masked-view/masked-view": "^0.3.2",
@@ -32,6 +35,7 @@
     "expo-sqlite": "~16.0.10",
     "expo-status-bar": "~3.0.9",
     "expo-web-browser": "~15.0.10",
+    "firebase": "^10.7.0",
     "jwt-decode": "^4.0.0",
     "mime": "^4.1.0",
     "react": "19.1.0",

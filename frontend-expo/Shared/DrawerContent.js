@@ -23,6 +23,7 @@ const DrawerContent = () => {
         <Drawer.Section title="Menu">
             <Drawer.Item
                 label="Home"
+                active={active === "Home"}
                 onPress={() => {
                     setActive("Home");
                     goMain("Home");
@@ -31,43 +32,43 @@ const DrawerContent = () => {
             />
             <Drawer.Item
                 label="My Profile"
+                active={active === "My Profile"}
                 onPress={() => {
                     setActive("My Profile");
                     goMain("User", { screen: "User Profile" });
                 }}
                 icon="account"
             />
-            {!isAdmin ? (
-                <Drawer.Item
-                    label="My Orders"
-                    onPress={() => {
-                        setActive("My Orders");
-                        goMain("My Orders");
-                    }}
-                    icon="cart-variant"
-                />
-            ) : null}
             <Drawer.Item
-                label="Recents"
+                label="My Orders"
+                active={active === "My Orders"}
                 onPress={() => {
-                    setActive("Recents");
-                    if (isAdmin) {
-                        goMain("User", { screen: "My Orders" });
-                    } else {
-                        goMain("My Orders");
-                    }
+                    setActive("My Orders");
+                    // Route through User stack so My Orders always has header + drawer menu button.
+                    goMain("User", { screen: "My Orders" });
                 }}
-                icon="history"
+                icon="cart-variant"
             />
             <Drawer.Item
-                label="Notifications"
-                active={active === "Notifications"}
+                label="Notification"
+                active={active === "Notification"}
                 onPress={() => {
-                    setActive("Notifications");
+                    setActive("Notification");
                     goMain("User", { screen: "Notifications" });
                 }}
                 icon="bell"
             />
+            {isAdmin ? (
+                <Drawer.Item
+                    label="Admin Dashboard"
+                    active={active === "Admin Dashboard"}
+                    onPress={() => {
+                        setActive("Admin Dashboard");
+                        goMain("Admin", { screen: "Products" });
+                    }}
+                    icon="cog"
+                />
+            ) : null}
         </Drawer.Section>
     );
 };

@@ -54,3 +54,31 @@ Base path: `/api/v1`
 - `*firebase-adminsdk*.json` / `firebase-service-account*.json` — Firebase private key
 - `uploads/` — runtime image uploads
 - `node_modules/`
+
+## Deploy on Render (Recommended)
+
+1. Push this repository to GitHub.
+2. In Render, create a new `Web Service` from the repo.
+3. Set `Root Directory` to `backend`.
+4. Build command: `npm install`
+5. Start command: `npm start`
+6. Add all env vars from `.env.example`.
+7. For Firebase Admin credentials in cloud, prefer `FCM_SERVICE_ACCOUNT_JSON` with full JSON content from your Firebase service account key.
+8. Keep `PUSH_NOTIFY_ALL_USERS=true` if you want global push fanout.
+
+You can also use the included `render.yaml` blueprint.
+
+## Deploy on Vercel (Alternative)
+
+Vercel config files are included:
+
+- `vercel.json`
+- `api/index.js`
+
+Steps:
+
+1. Import the repository into Vercel.
+2. Set project root to `backend`.
+3. Add env vars from `.env.example` in Vercel settings.
+4. Use `FCM_SERVICE_ACCOUNT_JSON` for Firebase Admin credentials.
+5. Deploy and test `GET /api/v1/health`.

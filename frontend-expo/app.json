@@ -6,7 +6,7 @@
       "com.lapsphere.itcp239.dev",
       "com.googleusercontent.apps.1061265006776-8k5hac1d8h9flh8l9pripeh18n9m1fsg"
     ],
-    "owner": "kuronini7",
+    "owner": "chynnamoreno",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -22,6 +22,7 @@
     },
     "android": {
       "package": "com.lapsphere.itcp239",
+      "googleServicesFile": "./google-services.json",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
@@ -34,9 +35,9 @@
     },
     "extra": {
       "eas": {
-        "projectId": "bef03e61-bc14-47d0-a447-8684a592ec18"
+        "projectId": "45098764-05db-4720-bbe3-a5ec5397787d"
       },
-      "apiUrl": "http://192.168.1.36:4000"
+      "apiUrl": "http://192.168.1.27:4000"
     },
     "plugins": [
       "expo-sqlite",

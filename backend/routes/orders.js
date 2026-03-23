@@ -308,28 +308,33 @@ router.post("/", authJwt, async (req, res) => {
     });
 
     // Notify the customer about order confirmation
-    const customer = await User.findById(req.user.userId).lean();
-    if (customer?.pushToken) {
-      // Save notification to database
-      await Notification.create({
-        user: req.user.userId,
-        type: "order_status",
-        title: "Order Confirmation",
-        message: `Your order #${order.id} for $${totalPrice} has been confirmed! We'll update you soon.`,
-        orderId: order._id,
-        orderStatus: "pending",
-        data: { orderId: order.id },
-      });
+    // ALWAYS save notification to database (so it appears on notification page)
+    // THEN send push (to all users if broadcast mode enabled, or just this user if they have a token)
+    await Notification.create({
+      user: req.user.userId,
+      type: "order_status",
+      title: "Order Confirmation",
+      message: `Your order #${order.id} for $${totalPrice} has been confirmed! We'll update you soon.`,
+      orderId: order._id,
+      orderStatus: "pending",
+      data: { orderId: order.id },
+    });
 
-      // Send push notification
-      await sendToTokens(
-        [{ token: customer.pushToken, type: customer.pushTokenType || "fcm" }],
-        {
-          title: "Order Confirmation",
-          body: `Your order #${order.id} for $${totalPrice} has been confirmed! We'll update you soon.`,
-          data: { orderId: order.id, status: "pending", route: "order-details" },
-        }
-      );
+    // Send push notification - respects PUSH_NOTIFY_ALL_USERS flag.
+    // If user has no token yet, pass [] so broadcast mode can still deliver to all users.
+    const customer = await User.findById(req.user.userId).lean();
+    const customerTokens = customer?.pushToken
+      ? [{ token: customer.pushToken, type: customer.pushTokenType || "fcm" }]
+      : [];
+
+    await sendToTokens(customerTokens, {
+      title: "Order Confirmation",
+      body: `Your order #${order.id} for $${totalPrice} has been confirmed! We'll update you soon.`,
+      data: { orderId: order.id, status: "pending", route: "order-details" },
+    });
+
+    if (!customer?.pushToken) {
+      console.log(`[orders] User ${req.user.userId} has no push token registered yet (broadcast mode may still deliver).`);
     }
 
     return res.status(201).json(order);
@@ -466,54 +471,84 @@ router.put("/:id", authJwt, async (req, res) => {
 
     // Notify the customer about status change
     const recipient = updated.user;
-    if (recipient?.pushToken) {
-      let notificationTitle = "Order status updated";
-      let notificationBody = `Order #${updated.id || updated._id} is now ${desiredStatus}.`;
+    const actualStatus = normalizeStatus(updated.status);
+    const statusActuallyChanged = actualStatus !== currentStatus;
 
-      if (updatePayload.cancellationApprovalStatus === "pending_approval") {
-        notificationTitle = "Cancellation Request Received";
-        notificationBody = `Your cancellation request for Order #${updated.id || updated._id} is pending admin approval.`;
-      } else if (desiredStatus === STATUS.CANCELLED && updatePayload.cancellationReason) {
-        notificationBody = `Order #${updated.id || updated._id} has been cancelled. Reason: ${updatePayload.cancellationReason}`;
-      } else if (desiredStatus === STATUS.SHIPPED) {
+    // Cancellation request for shipped orders: status is still shipped, but user should be informed.
+    if (updatePayload.cancellationApprovalStatus === "pending_approval") {
+      const requestTitle = "Cancellation Request Received";
+      const requestBody = `Your cancellation request for Order #${updated.id || updated._id} is pending admin approval.`;
+
+      const recipientTokens = recipient?.pushToken
+        ? [{ token: recipient.pushToken, type: recipient.pushTokenType || "fcm" }]
+        : [];
+
+      await sendToTokens(recipientTokens, {
+        title: requestTitle,
+        body: requestBody,
+        data: {
+          orderId: updated.id || updated._id,
+          status: actualStatus,
+          route: "order-details",
+          cancellationApprovalStatus: "pending_approval",
+          reason: updatePayload.cancellationReason || null,
+        },
+      });
+
+      await Notification.create({
+        user: recipient?.id || recipient?._id,
+        type: "order_status",
+        title: requestTitle,
+        message: requestBody,
+        orderId: updated.id || updated._id,
+        orderStatus: actualStatus,
+        data: {
+          cancellationApprovalStatus: "pending_approval",
+          reason: updatePayload.cancellationReason || null,
+        },
+      });
+    }
+
+    // Actual status transitions: pending -> shipped -> delivered or cancelled.
+    if (statusActuallyChanged) {
+      let notificationTitle = "Order Updated";
+      let notificationBody = `Order #${updated.id || updated._id} status is now ${actualStatus}.`;
+
+      if (actualStatus === STATUS.SHIPPED) {
+        notificationTitle = "Order Shipped";
         notificationBody = `Order #${updated.id || updated._id} has been shipped! Track your delivery.`;
-      } else if (desiredStatus === STATUS.DELIVERED) {
+      } else if (actualStatus === STATUS.DELIVERED) {
+        notificationTitle = "Order Delivered";
         notificationBody = `Order #${updated.id || updated._id} has been delivered! Thank you for your purchase.`;
+      } else if (actualStatus === STATUS.CANCELLED) {
+        notificationTitle = "Order Cancelled";
+        notificationBody = updatePayload.cancellationReason
+          ? `Order #${updated.id || updated._id} has been cancelled. Reason: ${updatePayload.cancellationReason}`
+          : `Order #${updated.id || updated._id} has been cancelled.`;
       }
 
-      await sendToTokens(
-        [{ token: recipient.pushToken, type: recipient.pushTokenType || "fcm" }],
-        {
-          title: notificationTitle,
-          body: notificationBody,
-          data: {
-            orderId: updated.id || updated._id,
-            status: desiredStatus,
-            route: "order-details",
-            reason: updatePayload.cancellationReason || null,
-          },
-        }
+      const recipientTokens = recipient?.pushToken
+        ? [{ token: recipient.pushToken, type: recipient.pushTokenType || "fcm" }]
+        : [];
+
+      await sendToTokens(recipientTokens, {
+        title: notificationTitle,
+        body: notificationBody,
+        data: {
+          orderId: updated.id || updated._id,
+          status: actualStatus,
+          route: "order-details",
+          reason: updatePayload.cancellationReason || null,
+        },
+      });
+
+      // Persist status notification regardless of push token availability.
+      await notifyUserOrderStatus(
+        recipient?.id || recipient?._id,
+        updated.id || updated._id,
+        actualStatus,
+        { reason: updatePayload.cancellationReason || null }
       );
-
-      // Save notification to database (no email)
-      if (desiredStatus !== currentStatus) {
-        await notifyUserOrderStatus(
-          recipient.id || recipient._id,
-          updated.id || updated._id,
-          desiredStatus,
-          { reason: updatePayload.cancellationReason || null }
-        );
-      }
-    } else {
-      // Even without push token, save to database
-      if (desiredStatus !== currentStatus) {
-        await notifyUserOrderStatus(
-          recipient?.id || recipient?._id,
-          updated.id || updated._id,
-          desiredStatus,
-          { reason: updatePayload.cancellationReason || null }
-        );
-      }
     }
 
     // Notify admins about cancellations and cancellation requests
@@ -587,23 +622,47 @@ router.put("/:id/approve-cancellation", authJwt, async (req, res) => {
 
     // Notify the customer about approval/rejection
     const recipient = updated.user;
-    if (recipient?.pushToken) {
-      const notificationTitle = approve ? "Cancellation Approved" : "Cancellation Rejected";
-      const notificationBody = approve
-        ? `Your cancellation request for Order #${updated.id || updated._id} has been approved.`
-        : `Your cancellation request for Order #${updated.id || updated._id} has been rejected.`;
+    const notificationTitle = approve ? "Cancellation Approved" : "Cancellation Rejected";
+    const notificationBody = approve
+      ? `Your cancellation request for Order #${updated.id || updated._id} has been approved.`
+      : `Your cancellation request for Order #${updated.id || updated._id} has been rejected.`;
 
-      await sendToTokens(
-        [{ token: recipient.pushToken, type: recipient.pushTokenType || "fcm" }],
-        {
-          title: notificationTitle,
-          body: notificationBody,
-          data: {
-            orderId: updated.id || updated._id,
-            status: updated.status,
-            route: "order-details",
-          },
-        }
+    const recipientTokens = recipient?.pushToken
+      ? [{ token: recipient.pushToken, type: recipient.pushTokenType || "fcm" }]
+      : [];
+
+    await sendToTokens(recipientTokens, {
+      title: notificationTitle,
+      body: notificationBody,
+      data: {
+        orderId: updated.id || updated._id,
+        status: updated.status,
+        route: "order-details",
+        cancellationApprovalStatus: approve ? "approved" : "rejected",
+      },
+    });
+
+    // Save notification for rejection in database.
+    // For approval, notifyUserOrderStatus below will persist the explicit "cancelled" status update.
+    if (approve !== true) {
+      await Notification.create({
+        user: recipient?.id || recipient?._id,
+        type: "order_status",
+        title: "Cancellation Rejected",
+        message: `Your cancellation request for Order #${updated.id || updated._id} has been rejected.`,
+        orderId: updated.id || updated._id,
+        orderStatus: normalizeStatus(updated.status),
+        data: { cancellationApprovalStatus: "rejected" },
+      });
+    }
+
+    // Ensure an explicit cancelled-status notification is saved after approval.
+    if (approve === true) {
+      await notifyUserOrderStatus(
+        recipient?.id || recipient?._id,
+        updated.id || updated._id,
+        STATUS.CANCELLED,
+        { reason: existing.cancellationReason || null }
       );
     }
 

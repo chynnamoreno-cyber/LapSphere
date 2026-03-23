@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, ActivityIndicator, ScrollView, Alert } from "react-native";
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, ActivityIndicator, ScrollView } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import axios from "axios";
 import Toast from "react-native-toast-message";
@@ -86,6 +86,7 @@ const PromoBroadcast = () => {
                     categoryId: categoryId === "all" ? undefined : categoryId,
                     durationDays: durationDays === "" ? 0 : Number(durationDays),
                     durationHours: durationHours === "" ? 24 : Number(durationHours),
+                    includeSender: true,
                 },
                 {
                     headers: {
@@ -123,103 +124,52 @@ const PromoBroadcast = () => {
         }
     };
 
-    const cancelPromo = async () => {
-        if (categoryId === "all") {
+    const executeCancelPromo = async (targetCategoryId, successText = "Promo Canceled") => {
+        try {
+            setIsCanceling(true);
             Toast.show({
                 topOffset: 60,
-                type: "warning",
-                text1: "Select a specific category to cancel",
-                text2: "Or press button again to cancel ALL promos",
+                type: "info",
+                text1: "Canceling promo...",
             });
-            return;
-        }
 
-        const categoryName = categories.find(c => (c.id || c._id) === categoryId)?.name || "All";
-
-        Alert.alert(
-            "Cancel Promo",
-            `End promo for ${categoryName}? Prices will revert to original.`,
-            [
-                { text: "Nevermind", style: "cancel" },
+            const jwt = (await getJwtToken()) || "";
+            const response = await axios.delete(
+                `${baseURL}promos/${targetCategoryId}`,
                 {
-                    text: "Cancel Promo",
-                    style: "destructive",
-                    onPress: async () => {
-                        try {
-                            setIsCanceling(true);
-                            const jwt = (await getJwtToken()) || "";
-                            const response = await axios.delete(
-                                `${baseURL}promos/${categoryId}`,
-                                {
-                                    headers: { Authorization: `Bearer ${jwt}` },
-                                }
-                            );
+                    headers: { Authorization: `Bearer ${jwt}` },
+                }
+            );
 
-                            Toast.show({
-                                topOffset: 60,
-                                type: "success",
-                                text1: "Promo Canceled",
-                                text2: `${response.data?.revertedCount || 0} products reverted to original price`,
-                            });
+            Toast.show({
+                topOffset: 60,
+                type: "success",
+                text1: successText,
+                text2: `${response.data?.revertedCount || 0} products reverted to original price`,
+            });
 
-                            dispatch(fetchProducts());
-                            await loadActivePromos();
-                        } catch (error) {
-                            Toast.show({
-                                topOffset: 60,
-                                type: "error",
-                                text1: "Failed to cancel promo",
-                                text2: error?.response?.data?.message || error.message,
-                            });
-                        } finally {
-                            setIsCanceling(false);
-                        }
-                    },
-                },
-            ]
-        );
+            dispatch(fetchProducts());
+            await loadActivePromos();
+        } catch (error) {
+            Toast.show({
+                topOffset: 60,
+                type: "error",
+                text1: "Failed to cancel promo",
+                text2: error?.response?.data?.message || error.message,
+            });
+        } finally {
+            setIsCanceling(false);
+        }
+    };
+
+    const cancelPromo = async () => {
+        const targetCategoryId = categoryId === "all" ? "all" : categoryId;
+        const successText = categoryId === "all" ? "All Promos Canceled" : "Promo Canceled";
+        await executeCancelPromo(targetCategoryId, successText);
     };
 
     const quickCancelPromo = async (categoryId, categoryName) => {
-        Alert.alert(
-            "Quick Cancel",
-            `End promo for ${categoryName}?`,
-            [
-                { text: "Nevermind", style: "cancel" },
-                {
-                    text: "Cancel",
-                    style: "destructive",
-                    onPress: async () => {
-                        try {
-                            const jwt = (await getJwtToken()) || "";
-                            const response = await axios.delete(
-                                `${baseURL}promos/${categoryId}`,
-                                {
-                                    headers: { Authorization: `Bearer ${jwt}` },
-                                }
-                            );
-
-                            Toast.show({
-                                topOffset: 60,
-                                type: "success",
-                                text1: "Promo Canceled",
-                                text2: `${response.data?.revertedCount || 0} products reverted`,
-                            });
-
-                            dispatch(fetchProducts());
-                            await loadActivePromos();
-                        } catch (error) {
-                            Toast.show({
-                                topOffset: 60,
-                                type: "error",
-                                text1: "Failed to cancel",
-                                text2: error?.response?.data?.message || error.message,
-                            });
-                        }
-                    },
-                },
-            ]
-        );
+        await executeCancelPromo(categoryId, `Promo Canceled: ${categoryName}`);
     };
 
     const timeRemaining = (expireAt) => {

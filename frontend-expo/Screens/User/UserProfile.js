@@ -211,8 +211,6 @@ const UserProfile = () => {
             throw new Error("Backend unreachable");
         }
 
-        const formData = new FormData();
-
         // **PRIORITY 1: Try sending as base64 (works best on web)**
         let base64ToSend = newProfileImageBase64;
         
@@ -231,20 +229,74 @@ const UserProfile = () => {
             }
         }
 
-        // **PRIORITY 3: Send as base64 if we have it**
+        // **PRIORITY 3: Send as base64 JSON if we have it**
         if (base64ToSend && base64ToSend.length > 0) {
-            console.log("[UserProfile] Using base64 upload method. Size:", base64ToSend.length, "bytes");
-            formData.append(
-                "imageBase64",
-                JSON.stringify({
-                    data: base64ToSend,
-                    mime: newProfileImageMime || "image/jpeg",
-                })
-            );
-        } 
+            console.log("[UserProfile] Using base64 JSON upload method. Size:", base64ToSend.length, "bytes");
+
+            try {
+                console.log("[UserProfile] Uploading to:", `${baseURL}users/profile/image`);
+                const response = await axios.put(
+                    `${baseURL}users/profile/image`,
+                    {
+                        imageBase64: {
+                            data: base64ToSend,
+                            mime: newProfileImageMime || "image/jpeg",
+                        },
+                    },
+                    {
+                        headers: {
+                            Authorization: `Bearer ${jwt}`,
+                            "Content-Type": "application/json",
+                        },
+                        timeout: 30000,
+                    }
+                );
+
+                console.log("[UserProfile] Image upload successful! Response:", response.status);
+                setNewProfileImage("");
+                setNewProfileImageBase64("");
+                setNewProfileImageMime("");
+                return response.data;
+            } catch (error) {
+                const status = error?.response?.status;
+                const errorMsg = error?.response?.data?.message || error?.message;
+                const errorCode = error?.code;
+
+                console.error("[UserProfile] Upload error:", {
+                    status,
+                    message: errorMsg,
+                    code: errorCode,
+                    fullError: error?.message,
+                });
+
+                let displayMsg = "Upload failed. ";
+                if (!error?.response) {
+                    displayMsg += "Network error. Check WiFi connection.";
+                } else if (status === 401) {
+                    displayMsg += "Your session expired. Please login again.";
+                } else if (status === 400) {
+                    displayMsg += errorMsg || "Image format or size error.";
+                } else if (status >= 500) {
+                    displayMsg += "Server error. Try again in a moment.";
+                } else {
+                    displayMsg += errorMsg || "Please try another photo.";
+                }
+
+                Toast.show({
+                    topOffset: 60,
+                    type: "error",
+                    text1: "Image upload failed",
+                    text2: displayMsg,
+                });
+                throw error;
+            }
+        }
+
         // **PRIORITY 4: Fall back to multipart file upload**
         else {
             console.log("[UserProfile] Using multipart file upload method");
+
+            const formData = new FormData();
             
             // Clean up the URI - don't add file:// prefix if it's already there or has content://
             let fileUri = newProfileImage;
@@ -264,52 +316,52 @@ const UserProfile = () => {
                 type: newProfileImageMime || "image/jpeg",
                 name: `profile-${Date.now()}.jpg`,
             });
-        }
 
-        try {
-            console.log("[UserProfile] Uploading to:", `${baseURL}users/profile/image`);
-            const response = await axios.put(`${baseURL}users/profile/image`, formData, {
-                headers: { Authorization: `Bearer ${jwt}` },
-                timeout: 30000,
-            });
+            try {
+                console.log("[UserProfile] Uploading to:", `${baseURL}users/profile/image`);
+                const response = await axios.put(`${baseURL}users/profile/image`, formData, {
+                    headers: { Authorization: `Bearer ${jwt}` },
+                    timeout: 30000,
+                });
 
-            console.log("[UserProfile] Image upload successful! Response:", response.status);
-            setNewProfileImage("");
-            setNewProfileImageBase64("");
-            setNewProfileImageMime("");
-            return response.data;
-        } catch (error) {
-            const status = error?.response?.status;
-            const errorMsg = error?.response?.data?.message || error?.message;
-            const errorCode = error?.code;
-            
-            console.error("[UserProfile] Upload error:", {
-                status,
-                message: errorMsg,
-                code: errorCode,
-                fullError: error?.message
-            });
-            
-            let displayMsg = "Upload failed. ";
-            if (!error?.response) {
-                displayMsg += "Network error. Check WiFi connection.";
-            } else if (status === 401) {
-                displayMsg += "Your session expired. Please login again.";
-            } else if (status === 400) {
-                displayMsg += errorMsg || "Image format or size error.";
-            } else if (status >= 500) {
-                displayMsg += "Server error. Try again in a moment.";
-            } else {
-                displayMsg += errorMsg || "Please try another photo.";
+                console.log("[UserProfile] Image upload successful! Response:", response.status);
+                setNewProfileImage("");
+                setNewProfileImageBase64("");
+                setNewProfileImageMime("");
+                return response.data;
+            } catch (error) {
+                const status = error?.response?.status;
+                const errorMsg = error?.response?.data?.message || error?.message;
+                const errorCode = error?.code;
+
+                console.error("[UserProfile] Upload error:", {
+                    status,
+                    message: errorMsg,
+                    code: errorCode,
+                    fullError: error?.message,
+                });
+
+                let displayMsg = "Upload failed. ";
+                if (!error?.response) {
+                    displayMsg += "Network error. Check WiFi connection.";
+                } else if (status === 401) {
+                    displayMsg += "Your session expired. Please login again.";
+                } else if (status === 400) {
+                    displayMsg += errorMsg || "Image format or size error.";
+                } else if (status >= 500) {
+                    displayMsg += "Server error. Try again in a moment.";
+                } else {
+                    displayMsg += errorMsg || "Please try another photo.";
+                }
+
+                Toast.show({
+                    topOffset: 60,
+                    type: "error",
+                    text1: "Image upload failed",
+                    text2: displayMsg,
+                });
+                throw error;
             }
-            
-            Toast.show({
-                topOffset: 60,
-                type: "error",
-                text1: "Image upload failed",
-                text2: displayMsg,
-            });
-            throw error;
         }
     };
 

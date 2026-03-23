@@ -1,0 +1,37 @@
+services:
+  - type: web
+    name: lapsphere-backend
+    runtime: node
+    rootDir: backend
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: API_PREFIX
+        value: /api/v1
+      - key: CORS_ORIGIN
+        value: "*"
+      - key: PUSH_NOTIFY_ALL_USERS
+        value: true
+      - key: CONNECTION_STRING
+        sync: false
+      - key: DB_NAME
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: JWT_EXPIRES_IN
+        sync: false
+      - key: MAX_FILE_SIZE_MB
+        sync: false
+      - key: FCM_SERVICE_ACCOUNT_PATH
+        sync: false
+      - key: FCM_SERVICE_ACCOUNT_JSON
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_IDS
+        sync: false

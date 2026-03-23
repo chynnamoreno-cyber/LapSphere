@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "591640888957",
+    "project_id": "lapsphere-78b14",
+    "storage_bucket": "lapsphere-78b14.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:591640888957:android:89a35195cebe3fa7821314",
+        "android_client_info": {
+          "package_name": "com.lapsphere.dev"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDvbiNTfocNwGMuKQvaen1OY5yYcb7OL1k"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:591640888957:android:bce71e2bf0b8059a821314",
+        "android_client_info": {
+          "package_name": "com.lapsphere.itcp239"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDvbiNTfocNwGMuKQvaen1OY5yYcb7OL1k"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

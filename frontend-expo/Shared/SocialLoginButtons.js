@@ -54,49 +54,65 @@ function buildRedirectUri() {
 }
 
 function GoogleLoginButton({ dispatch, variant }) {
-  const redirectUri = buildRedirectUri();
+  const loggedPlatform = React.useRef(false);
+  const loggedRequest = React.useRef(false);
 
-  console.log(
-    '[GoogleAuth] platform:', Platform.OS,
-    '| ownership:', Constants.appOwnership,
-    '| redirectUri:', redirectUri,
+  const redirectUri = React.useMemo(() => buildRedirectUri(), []);
+
+  const requestConfig = React.useMemo(
+    () => ({
+      webClientId: GOOGLE_WEB_CLIENT_ID,
+      expoClientId: GOOGLE_EXPO_CLIENT_ID || GOOGLE_WEB_CLIENT_ID,
+      // expo-auth-session requires androidClientId on Android even in Expo Go.
+      androidClientId: GOOGLE_ANDROID_CLIENT_ID || GOOGLE_WEB_CLIENT_ID,
+      iosClientId: GOOGLE_IOS_CLIENT_ID || undefined,
+      selectAccount: true,
+      redirectUri: IS_EXPO_GO ? redirectUri : redirectUri,
+    }),
+    [redirectUri]
   );
-
-  const requestConfig = {
-    webClientId: GOOGLE_WEB_CLIENT_ID,
-    expoClientId: GOOGLE_EXPO_CLIENT_ID || GOOGLE_WEB_CLIENT_ID,
-    // expo-auth-session requires androidClientId on Android even in Expo Go.
-    androidClientId: GOOGLE_ANDROID_CLIENT_ID || GOOGLE_WEB_CLIENT_ID,
-    iosClientId: GOOGLE_IOS_CLIENT_ID || undefined,
-    selectAccount: true,
-  };
-
-  if (IS_EXPO_GO) {
-    // Expo Go should use only the Expo/Web OAuth client + proxy redirect.
-    requestConfig.redirectUri = redirectUri;
-  } else if (redirectUri) {
-    requestConfig.redirectUri = redirectUri;
-  }
 
   const [request, response, promptAsync] = Google.useIdTokenAuthRequest(requestConfig);
 
-  if (request) {
-    console.log(
-      '[GoogleAuth] request ready | clientId:', requestConfig.androidClientId,
-      '| requestRedirect:', request.redirectUri,
-      '| authUrl:', request.url,
-    );
-  }
+  React.useEffect(() => {
+    if (!loggedPlatform.current) {
+      console.log(
+        '[GoogleAuth] platform:', Platform.OS,
+        '| ownership:', Constants.appOwnership,
+        '| redirectUri:', redirectUri,
+      );
+      loggedPlatform.current = true;
+    }
+  }, []);
 
   React.useEffect(() => {
-    if (!response || response.type !== 'success') return;
+    if (!loggedRequest.current && request) {
+      console.log(
+        '[GoogleAuth] request ready | clientId:', requestConfig.androidClientId,
+        '| requestRedirect:', request.redirectUri,
+        '| authUrl:', request.url,
+      );
+      loggedRequest.current = true;
+    }
+  }, [request, requestConfig.androidClientId]);
+
+  React.useEffect(() => {
+    if (!response) return;
+
+    console.log('[GoogleAuth] response type:', response.type);
+    console.log('[GoogleAuth] response params:', response.params);
+    console.log('[GoogleAuth] response authentication:', response.authentication);
+
+    if (response.type !== 'success') return;
 
     const idToken = response?.params?.id_token || response?.authentication?.idToken;
     if (!idToken) {
+      console.log('[GoogleAuth] No idToken in success response (waiting for async completion)');
       // Native flow may first return only `code`, then update with exchanged id_token.
       return;
     }
 
+    console.log('[GoogleAuth] idToken found, calling loginWithGoogleIdToken');
     loginWithGoogleIdToken(idToken, dispatch);
   }, [response, dispatch]);
 

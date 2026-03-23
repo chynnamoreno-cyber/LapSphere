@@ -1,8 +1,7 @@
 node_modules/
 .expo/
 
-# Firebase Android config — contains your project credentials
-google-services.json
+# Keep google-services.json available locally so EAS can include FCM config in dev builds.
 
 # Expo local config
 .expo-shared/

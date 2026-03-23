@@ -150,6 +150,33 @@ function buildImageUrl(req, filename) {
   return `${req.protocol}://${req.get("host")}/${config.uploadDir}/${filename}`;
 }
 
+function normalizeUploadUrl(value, req) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+
+  const marker = `/${config.uploadDir}/`;
+  const idx = raw.indexOf(marker);
+  if (idx === -1) return raw;
+
+  const filePart = raw.slice(idx + marker.length);
+  if (!filePart) return raw;
+
+  return buildImageUrl(req, filePart);
+}
+
+function withNormalizedProductImages(product, req) {
+  if (!product) return product;
+
+  const plain = typeof product.toObject === "function" ? product.toObject() : { ...product };
+  plain.image = normalizeUploadUrl(plain.image, req);
+
+  if (Array.isArray(plain.images)) {
+    plain.images = plain.images.map((img) => normalizeUploadUrl(img, req));
+  }
+
+  return plain;
+}
+
 function parseBoolean(value, fallback = false) {
   if (value === undefined || value === null) return fallback;
   if (typeof value === "boolean") return value;
@@ -284,10 +311,10 @@ function getReviewSort(sortKey) {
 }
 
 // GET /products — public, used by home screen
-router.get("/", async (_req, res) => {
+router.get("/", async (req, res) => {
   try {
     const products = await Product.find().populate("category", "id name color");
-    return res.status(200).json(products);
+    return res.status(200).json(products.map((p) => withNormalizedProductImages(p, req)));
   } catch (_error) {
     return res.status(500).json({ message: "Failed to load products" });
   }
@@ -309,7 +336,7 @@ router.get("/search/query", async (req, res) => {
       .populate("category", "id name color")
       .limit(20);
 
-    return res.status(200).json(products);
+    return res.status(200).json(products.map((p) => withNormalizedProductImages(p, req)));
   } catch (_error) {
     return res.status(500).json({ message: "Failed to search products" });
   }
@@ -320,7 +347,7 @@ router.get("/:id", async (req, res) => {
   try {
     const product = await Product.findById(req.params.id).populate("category", "id name color");
     if (!product) return res.status(404).json({ message: "Product not found" });
-    return res.status(200).json(product);
+    return res.status(200).json(withNormalizedProductImages(product, req));
   } catch (_error) {
     return res.status(500).json({ message: "Failed to load product" });
   }
@@ -415,7 +442,9 @@ router.post("/:id/reviews", authJwt, uploadReviewImages, async (req, res) => {
       });
     }
 
-    const images = (req.files || []).map((file) => buildImageUrl(req, file.filename)).slice(0, 3);
+    const uploadedImages = (req.files || []).map((file) => buildImageUrl(req, file.filename));
+    const base64Images = materializeBase64Images(req.body.imagesBase64, req);
+    const images = [...uploadedImages, ...base64Images].slice(0, 3);
 
     const review = await Review.create({
       product: productId,
@@ -477,7 +506,7 @@ router.post("/:id/reviews", authJwt, uploadReviewImages, async (req, res) => {
 });
 
 // PUT /products/:id/reviews/:reviewId — update own review only
-router.put("/:id/reviews/:reviewId", authJwt, uploadReviewImages, async (req, res) => {
+async function updateReviewHandler(req, res) {
   try {
     const productId = toObjectIdOrNull(req.params.id);
     const reviewId = toObjectIdOrNull(req.params.reviewId);
@@ -524,8 +553,9 @@ router.put("/:id/reviews/:reviewId", authJwt, uploadReviewImages, async (req, re
       }
     }
 
-    const uploadedImages = (req.files || []).map((file) => buildImageUrl(req, file.filename)).slice(0, 3);
-    review.images = [...retainedImages, ...uploadedImages].slice(0, 3);
+    const uploadedImages = (req.files || []).map((file) => buildImageUrl(req, file.filename));
+    const base64Images = materializeBase64Images(req.body.imagesBase64, req);
+    review.images = [...retainedImages, ...uploadedImages, ...base64Images].slice(0, 3);
 
     await review.save();
     await refreshProductReviewStats(productId);
@@ -573,7 +603,13 @@ router.put("/:id/reviews/:reviewId", authJwt, uploadReviewImages, async (req, re
   } catch (_error) {
     return res.status(500).json({ message: "Failed to update review" });
   }
-});
+}
+
+// PUT /products/:id/reviews/:reviewId — update own review only
+router.put("/:id/reviews/:reviewId", authJwt, uploadReviewImages, updateReviewHandler);
+
+// POST alias for mobile multipart clients that fail on PUT + FormData.
+router.post("/:id/reviews/:reviewId", authJwt, uploadReviewImages, updateReviewHandler);
 
 // POST /products — admin only, multipart
 router.post("/", authJwt, uploadProductImages, async (req, res) => {

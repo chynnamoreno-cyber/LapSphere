@@ -21,6 +21,7 @@ import baseURL from './assets/common/baseurl';
 import AuthGlobal from './Context/Store/AuthGlobal';
 import Constants from 'expo-constants';
 import { setCartItems } from './Redux/Actions/cartActions';
+import { initializeFirebase } from './assets/common/firebaseInit';
 import {
   getStoredCartItems,
   setStoredCartItems,
@@ -55,8 +56,8 @@ if (Platform.OS === 'web') {
 
 if (Constants.appOwnership === 'expo') {
   LogBox.ignoreLogs([
-    'expo-notifications: Android Push notifications (remote notifications) functionality provided by expo-notifications was removed from Expo Go',
-    '`expo-notifications` functionality is not fully supported in Expo Go',
+    'expo-notifications: Android Push notifications',
+    '`expo-notifications` functionality is not fully supported',
     '"shadow*" style props are deprecated',
     'props.pointerEvents is deprecated',
     'Image: style.resizeMode is deprecated',
@@ -67,12 +68,21 @@ if (Constants.appOwnership === 'expo') {
 // MUST be at module level - tells Expo how to handle notifications in the foreground
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
+    // Legacy compatibility for Android/older Expo notification presentation paths.
+    shouldShowAlert: true,
     shouldShowBanner: true,
     shouldShowList: true,
     shouldPlaySound: true,
     shouldSetBadge: false,
   }),
 });
+
+// Initialize Firebase at app startup
+initializeFirebase()
+  .catch((error) => {
+    // Errors are logged inside initializeFirebase, just ensure app continues
+    console.log('[App] Firebase initialization completed (may skip in Expo Go)');
+  });
 
 const navigationRef = createNavigationContainerRef();
 
@@ -154,84 +164,149 @@ function AppInner() {
   const handledNotificationIds = useRef(new Set());
 
   useEffect(() => {
+    // Setup Android notification channel for better compatibility
     if (Platform.OS === 'android') {
-      Notifications.setNotificationChannelAsync('default', {
-        name: 'default',
+      // Use a dedicated high-priority channel to avoid legacy/default channel importance issues.
+      Notifications.setNotificationChannelAsync('lapsphere-high', {
+        name: 'LapSphere High Priority',
         importance: Notifications.AndroidImportance.MAX,
         sound: 'default',
         vibrationPattern: [0, 250, 250, 250],
-      }).catch(() => {});
+        lightColor: '#FF231F7C',
+      }).catch((err) => console.warn('[Notification] Android high channel setup:', err.message));
+
+      // Keep default channel as fallback for payloads that don't specify channelId.
+      Notifications.setNotificationChannelAsync('default', {
+        name: 'default',
+        importance: Notifications.AndroidImportance.HIGH,
+        sound: 'default',
+      }).catch((err) => console.warn('[Notification] Android default channel setup:', err.message));
     }
+
+    // Listen for notifications while app is in foreground
+    const subscription = Notifications.addNotificationReceivedListener((notification) => {
+      console.log('[Notification] Received in foreground:', {
+        title: notification.request.content.title,
+        body: notification.request.content.body,
+      });
+    });
+
+    return () => subscription.remove();
   }, []);
 
   useEffect(() => {
     const registerPushToken = async () => {
       try {
-        if (Constants.appOwnership === 'expo') {
-          // Expo Go (SDK 53+): no remote FCM; in-app Notification list still works from API.
-          console.warn(
-            '[Push] Expo Go cannot register device push tokens. Use a dev build / APK + google-services.json + FCM for real pushes.'
-          );
-          return;
-        }
-
+        // Request permissions
         const { status: existingStatus } = await Notifications.getPermissionsAsync();
         let finalStatus = existingStatus;
         if (finalStatus !== 'granted') {
           const { status } = await Notifications.requestPermissionsAsync();
           finalStatus = status;
         }
-        if (finalStatus !== 'granted') return;
+        if (finalStatus !== 'granted') {
+          console.log('[Push] Notification permissions not granted (Status:', finalStatus, ')');
+          return;
+        }
 
-        let pushToken = null;
-        let tokenType = 'unknown';
+        // Get Expo push token - simple and reliable
+        console.log('[Push] 🎟️  Requesting Expo push token...');
+        
+        const projectId = Constants.expoConfig?.extra?.eas?.projectId || '45098764-05db-4720-bbe3-a5ec5397787d';
+        console.log('[Push] Project ID:', projectId);
 
         try {
-          const deviceToken = await Notifications.getDevicePushTokenAsync();
-          pushToken = deviceToken?.data;
-          tokenType = 'fcm';
-        } catch {
-          try {
-            const projectId =
-              Constants.expoConfig?.extra?.eas?.projectId ||
-              Constants.manifest?.extra?.eas?.projectId ||
-              '6f747b51-b33e-4c6e-9d11-89bf760ec81a';
-            const expoToken = await Notifications.getExpoPushTokenAsync({ projectId });
-            pushToken = expoToken?.data;
-            tokenType = 'expo';
-          } catch {
+          const jwt = await getJwtToken();
+          if (!jwt) {
+            console.log('[Push] No JWT token available yet, deferring token registration');
             return;
           }
-        }
 
-        if (!pushToken) return;
+          const authUserId =
+            context?.stateUser?.user?.userId ||
+            context?.stateUser?.user?.id ||
+            context?.stateUser?.user?.sub ||
+            'jwt-user';
 
-        await AsyncStorage.removeItem('pushToken');
+          let pushToken = '';
+          let pushTokenType = 'expo';
 
-        const jwt = await getJwtToken();
-        if (!jwt) return;
+          // Primary: Expo push token (works for Expo push service)
+          try {
+            const expoToken = await Notifications.getExpoPushTokenAsync({ projectId });
+            if (expoToken?.data) {
+              pushToken = expoToken.data;
+              pushTokenType = 'expo';
+              console.log('[Push] ✅ Got Expo token:', pushToken.substring(0, 50) + '...');
+            }
+          } catch (tokenError) {
+            console.warn('[Push] Expo token unavailable, trying device token fallback');
+            console.log('[Push] Expo token error:', tokenError?.message?.substring(0, 100));
+          }
 
-        const response = await fetch(`${baseURL}users/push-token`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${jwt}`,
-          },
-          body: JSON.stringify({ token: pushToken, type: tokenType }),
-        });
+          // Fallback: native device token (FCM/APNs) for dev/prod builds
+          if (!pushToken) {
+            try {
+              const deviceToken = await Notifications.getDevicePushTokenAsync();
+              const nativeToken = deviceToken?.data;
+              if (nativeToken) {
+                pushToken = String(nativeToken);
+                pushTokenType = Platform.OS === 'ios' ? 'apns' : 'fcm';
+                console.log('[Push] ✅ Got device token fallback:', pushToken.substring(0, 50) + '...');
+              }
+            } catch (deviceTokenError) {
+              console.warn('[Push] Device token fallback failed');
+              console.log('[Push] Device token error:', deviceTokenError?.message?.substring(0, 100));
+            }
+          }
 
-        if (response.ok) {
-          await AsyncStorage.setItem('pushToken', pushToken);
+          if (!pushToken) {
+            console.warn('[Push] ❌ No push token available to register');
+            return;
+          }
+
+          // Cache token per user and type so one account/token type does not block another.
+          const registrationCacheKey = `registeredPushToken:${authUserId}:${pushTokenType}`;
+          const storedToken = await AsyncStorage.getItem(registrationCacheKey);
+          if (storedToken === pushToken) {
+            console.log('[Push] Token unchanged for current user, skipping registration');
+            return;
+          }
+
+          // Register token with backend
+          console.log(`[Push] 📤 Registering ${pushTokenType} token with backend...`);
+          const response = await fetch(`${baseURL}users/push-token`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${jwt}`,
+            },
+            body: JSON.stringify({ token: pushToken, type: pushTokenType }),
+          });
+
+          if (response.ok) {
+            const data = await response.json();
+            console.log('[Push] ✅ SUCCESS: Token registered:', data);
+            await AsyncStorage.setItem(registrationCacheKey, pushToken);
+          } else {
+            const errorData = await response.json().catch(() => ({}));
+            console.error('[Push] ❌ Registration failed:', response.status, errorData?.message);
+          }
+        } catch (tokenError) {
+          console.warn('[Push] ⚠️ Token registration failed.');
+          console.log('[Push] Error details:', tokenError?.message?.substring(0, 100));
         }
       } catch (error) {
-        console.error('[Push] Registration error:', error.message);
+        console.warn('[Push] Unexpected error in token registration:', error?.message?.substring(0, 100));
       }
     };
 
-    if (context?.stateUser?.isAuthenticated) {
-      registerPushToken();
-    }
-  }, [context?.stateUser?.isAuthenticated]);
+    // Register immediately and periodically
+    registerPushToken();
+    const interval = setInterval(registerPushToken, 30000); // Check every 30 seconds
+
+    return () => clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     const handleNotificationResponse = (response) => {

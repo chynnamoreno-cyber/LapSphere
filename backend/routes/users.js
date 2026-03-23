@@ -103,12 +103,24 @@ router.post("/auth/google", async (req, res) => {
     const data = await resp.json();
     console.log("[auth/google] tokeninfo status:", resp.status);
     console.log("[auth/google] token aud:", data?.aud);
+    console.log("[auth/google] token error:", data?.error || "none");
 
     const allowedAudiences = config.googleClientIds;
     console.log("[auth/google] allowed audiences:", allowedAudiences);
-    if (data.error || !allowedAudiences.includes(data.aud)) {
-      console.log("[auth/google] token rejected. error:", data?.error || "audience mismatch");
-      return res.status(401).json({ message: "Invalid Google token" });
+    
+    if (data.error) {
+      console.log("[auth/google] token validation error:", data.error, data.error_description);
+      return res.status(401).json({ message: `Invalid Google token: ${data.error}` });
+    }
+    
+    if (!allowedAudiences || allowedAudiences.length === 0) {
+      console.error("[auth/google] No GOOGLE_CLIENT_IDS configured in backend");
+      return res.status(503).json({ message: "Google sign-in not properly configured on server" });
+    }
+    
+    if (!allowedAudiences.includes(data.aud)) {
+      console.log("[auth/google] audience mismatch. token aud:", data.aud, "| allowed:", allowedAudiences);
+      return res.status(401).json({ message: "Invalid Google token audience" });
     }
 
     const email = (data.email || "").trim().toLowerCase();
@@ -138,15 +150,23 @@ router.post("/auth/google", async (req, res) => {
         await User.updateOne({ _id: user._id }, { $set: { isVerified: true } });
         user.isVerified = true;
       }
-      user.id = user._id.toString();
-      delete user._id;
-      delete user.passwordHash;
-      delete user.pushToken;
-      delete user.pushTokenType;
     }
 
+    // Normalize user object: ensure id is set before deleting _id
+    const userId = user.id || user._id?.toString();
+    if (!userId) {
+      console.error("[auth/google] Failed to get user ID for:", email);
+      return res.status(500).json({ message: "User creation failed" });
+    }
+
+    // Cleanup sensitive fields
+    delete user._id;
+    delete user.passwordHash;
+    delete user.pushToken;
+    delete user.pushTokenType;
+
     const payload = {
-      userId: user.id || user._id?.toString(),
+      userId,
       email: user.email,
       isAdmin: user.isAdmin || false,
     };
@@ -190,6 +210,70 @@ router.post("/login", async (req, res) => {
     return res.status(200).json({ token, user: payload });
   } catch (_error) {
     return res.status(500).json({ message: "Failed to login" });
+  }
+});
+
+// POST /users/push-token — save device push token for the current user
+router.post("/push-token", authJwt, async (req, res) => {
+  try {
+    const { token, type } = req.body;
+    if (!token || !String(token).trim()) {
+      return res.status(400).json({ message: "Push token is required" });
+    }
+
+    const trimmedToken = String(token).trim();
+    const tokenType = type || (trimmedToken.startsWith("ExponentPushToken") ? "expo" : "fcm");
+    
+    console.log(`[POST /push-token] Registering ${tokenType} token for user ${req.user.userId}`);
+    console.log(`[POST /push-token] Token (first 40 chars): ${trimmedToken.substring(0, 40)}...`);
+    
+    const updated = await User.findByIdAndUpdate(
+      req.user.userId,
+      {
+        pushToken: trimmedToken,
+        pushTokenType: tokenType,
+      },
+      { new: true }
+    ).select("id pushToken pushTokenType");
+    
+    if (!updated) {
+      console.error("[POST /push-token] User not found:", req.user.userId);
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    console.log(`[POST /push-token] Successfully saved token for user ${req.user.userId}`);
+    return res.status(200).json({ 
+      success: true, 
+      message: "Push token registered",
+      token: trimmedToken.substring(0, 20) + "...",
+      type: tokenType
+    });
+  } catch (error) {
+    console.error('[POST /push-token] Error:', error.message, error.stack);
+    return res.status(500).json({ message: "Failed to save push token" });
+  }
+});
+
+// GET /users/push-token — check if user has a registered push token
+router.get("/push-token", authJwt, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.userId).select("pushToken pushTokenType").lean();
+    
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    const hasToken = Boolean(user.pushToken && user.pushToken.trim());
+    console.log(`[GET /push-token] User ${req.user.userId} has token: ${hasToken} (type: ${user.pushTokenType})`);
+    
+    return res.status(200).json({
+      hasToken,
+      tokenType: user.pushTokenType || null,
+      tokenPreview: hasToken ? user.pushToken.substring(0, 20) + "..." : null,
+    });
+  } catch (error) {
+    console.error('[GET /push-token] Error:', error.message);
+    return res.status(500).json({ message: "Failed to check push token status" });
   }
 });
 
@@ -379,27 +463,6 @@ router.put("/profile", authJwt, async (req, res) => {
     return res.status(200).json(user.toJSON());
   } catch (_error) {
     return res.status(500).json({ message: "Failed to update profile" });
-  }
-});
-
-// POST /users/push-token — save device push token for the current user
-router.post("/push-token", authJwt, async (req, res) => {
-  try {
-    const { token, type } = req.body;
-    if (!token) {
-      return res.status(400).json({ message: "Push token is required" });
-    }
-
-    const tokenType = type || (token.startsWith("ExponentPushToken") ? "expo" : "fcm");
-    console.log(`[POST /push-token] Saving ${tokenType} push token for user ${req.user.userId}: ${token.substring(0, 30)}...`);
-    await User.findByIdAndUpdate(req.user.userId, {
-      pushToken: String(token),
-      pushTokenType: tokenType,
-    });
-    return res.status(200).json({ success: true });
-  } catch (error) {
-    console.error('[POST /push-token] Error:', error.message);
-    return res.status(500).json({ message: "Failed to save push token" });
   }
 });
 

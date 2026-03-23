@@ -10,6 +10,7 @@ import {
     TextInput,
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
+import * as FileSystem from "expo-file-system";
 import { Ionicons } from "@expo/vector-icons";
 import axios from "axios";
 import mime from "mime";
@@ -87,19 +88,26 @@ const LeaveReview = ({ route, navigation }) => {
             allowsMultipleSelection: true,
             quality: 0.9,
             selectionLimit: remain,
+            base64: true,
         });
 
         if (result.canceled) return;
 
-        const selectedUris = (result.assets || []).map((asset) => asset.uri).filter(Boolean);
-        if (!selectedUris.length) return;
+        const selectedAssets = (result.assets || [])
+            .filter((asset) => asset?.uri)
+            .map((asset) => ({
+                uri: asset.uri,
+                base64: asset.base64 || "",
+                mime: asset.mimeType || mime.getType(asset.uri) || "image/jpeg",
+            }));
+        if (!selectedAssets.length) return;
 
-        const capped = selectedUris.slice(0, remain);
+        const capped = selectedAssets.slice(0, remain);
         setPickedImages((prev) => [...prev, ...capped]);
     };
 
     const removePickedImage = (uri) => {
-        setPickedImages((prev) => prev.filter((img) => img !== uri));
+        setPickedImages((prev) => prev.filter((img) => img?.uri !== uri));
     };
 
     const removeExistingImage = (uri) => {
@@ -107,12 +115,62 @@ const LeaveReview = ({ route, navigation }) => {
     };
 
     const appendImageFile = (formData, uri) => {
-        const cleanUri = uri.startsWith("file://") ? uri : `file://${uri}`;
+        // Keep Android content:// URIs unchanged. Prefix only plain absolute file paths.
+        let uploadUri = String(uri || "").trim();
+        if (!uploadUri) return;
+        if (!uploadUri.startsWith("file://") && !uploadUri.startsWith("content://") && !uploadUri.startsWith("ph://")) {
+            uploadUri = `file://${uploadUri}`;
+        }
+
+        const inferredType = mime.getType(uploadUri) || "image/jpeg";
+        const rawName = uploadUri.split("?")[0].split("/").pop();
+        const extension = mime.getExtension(inferredType) || "jpg";
+        const fileName = rawName && rawName.includes(".") ? rawName : `review-${Date.now()}.${extension}`;
+
         formData.append("images", {
-            uri: cleanUri,
-            type: mime.getType(cleanUri) || "image/jpeg",
-            name: cleanUri.split("/").pop() || `review-${Date.now()}.jpg`,
+            uri: uploadUri,
+            type: inferredType,
+            name: fileName,
         });
+    };
+
+    const getErrorMessage = (error) => {
+        const data = error?.response?.data;
+        if (typeof data === "string" && data.trim()) return data;
+        if (data?.message) return data.message;
+        if (error?.message) return error.message;
+        return "Failed to submit review";
+    };
+
+    const buildBase64ImagesFromAssets = async (assets) => {
+        const out = [];
+        for (const asset of assets || []) {
+            const cleanUri = String(asset?.uri || "").trim();
+            if (!cleanUri) continue;
+
+            if (asset?.base64) {
+                out.push({
+                    data: String(asset.base64),
+                    mime: asset?.mime || mime.getType(cleanUri) || "image/jpeg",
+                });
+                continue;
+            }
+
+            try {
+                const data = await FileSystem.readAsStringAsync(cleanUri, {
+                    encoding: "base64",
+                });
+                if (!data) continue;
+
+                out.push({
+                    data,
+                    mime: asset?.mime || mime.getType(cleanUri) || "image/jpeg",
+                });
+            } catch (error) {
+                console.warn("[LeaveReview] Failed to convert image to base64:", cleanUri, error?.message || error);
+            }
+        }
+        return out;
     };
 
     const submit = async () => {
@@ -122,27 +180,42 @@ const LeaveReview = ({ route, navigation }) => {
             setSaving(true);
             const jwt = await getJwtToken();
 
-            const formData = new FormData();
-            formData.append("rating", String(rating));
-            formData.append("comment", String(comment || "").trim());
-            formData.append("orderId", String(orderId));
-            formData.append("existingImages", JSON.stringify(existingImages));
+            if (!jwt) {
+                Toast.show({ topOffset: 60, type: "error", text1: "Please log in again" });
+                return;
+            }
 
-            pickedImages.forEach((uri) => appendImageFile(formData, uri));
+            const payload = {
+                rating: String(rating),
+                comment: String(comment || "").trim(),
+                orderId: String(orderId || ""),
+                existingImages,
+            };
 
-            // Let axios set multipart boundary (manual Content-Type breaks uploads on native).
             const config = {
                 headers: {
-                    Authorization: `Bearer ${jwt || ""}`,
+                    Authorization: `Bearer ${jwt}`,
                 },
             };
 
+            // On Android, multipart uploads can fail with generic Network Error.
+            // Use JSON + base64 images instead for reliability.
+            const hasNewImages = pickedImages.length > 0;
+            let body = payload;
+            if (hasNewImages) {
+                const imagesBase64 = await buildBase64ImagesFromAssets(pickedImages);
+                body = {
+                    ...payload,
+                    imagesBase64,
+                };
+            }
+
             if (existingReview?.id || existingReview?._id) {
                 const reviewId = existingReview.id || existingReview._id;
-                await axios.put(`${baseURL}products/${productId}/reviews/${reviewId}`, formData, config);
+                await axios.put(`${baseURL}products/${productId}/reviews/${reviewId}`, body, config);
                 Toast.show({ topOffset: 60, type: "success", text1: "Review updated" });
             } else {
-                await axios.post(`${baseURL}products/${productId}/reviews`, formData, config);
+                await axios.post(`${baseURL}products/${productId}/reviews`, body, config);
                 Toast.show({ topOffset: 60, type: "success", text1: "Review submitted" });
             }
 
@@ -151,7 +224,8 @@ const LeaveReview = ({ route, navigation }) => {
                 navigation.goBack();
             }, 600);
         } catch (error) {
-            const msg = error?.response?.data?.message || "Failed to submit review";
+            const msg = getErrorMessage(error);
+            console.log("[LeaveReview] submit error:", msg, error?.response?.status || "no-status");
             Toast.show({ topOffset: 60, type: "error", text1: msg });
         } finally {
             setSaving(false);
@@ -225,10 +299,10 @@ const LeaveReview = ({ route, navigation }) => {
                             </TouchableOpacity>
                         </View>
                     ))}
-                    {pickedImages.map((uri) => (
-                        <View key={`picked-${uri}`} style={styles.imageItem}>
-                            <Image source={{ uri }} style={styles.image} />
-                            <TouchableOpacity style={styles.removeBtn} onPress={() => removePickedImage(uri)}>
+                    {pickedImages.map((img) => (
+                        <View key={`picked-${img.uri}`} style={styles.imageItem}>
+                            <Image source={{ uri: img.uri }} style={styles.image} />
+                            <TouchableOpacity style={styles.removeBtn} onPress={() => removePickedImage(img.uri)}>
                                 <Text style={styles.removeBtnText}>x</Text>
                             </TouchableOpacity>
                         </View>
