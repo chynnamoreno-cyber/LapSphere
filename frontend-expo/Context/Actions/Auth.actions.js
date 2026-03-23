@@ -5,6 +5,38 @@ import { setJwtToken, removeJwtToken } from '../../assets/common/authToken';
 
 export const SET_CURRENT_USER = 'SET_CURRENT_USER';
 
+const AUTH_REQUEST_TIMEOUT_MS = 60000;
+const HEALTHCHECK_TIMEOUT_MS = 20000;
+
+function isRenderHost(url) {
+  return String(url || '').includes('.onrender.com/');
+}
+
+async function fetchWithTimeout(url, options = {}, timeoutMs = AUTH_REQUEST_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, {
+      ...options,
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+async function warmUpBackendIfNeeded() {
+  if (!isRenderHost(baseURL)) return;
+
+  const healthUrl = `${baseURL}health`;
+  try {
+    await fetchWithTimeout(healthUrl, { method: 'GET' }, HEALTHCHECK_TIMEOUT_MS);
+  } catch (error) {
+    // Ignore warm-up failure and proceed to auth request.
+    console.log('[socialAuth] Render warm-up skipped:', error?.message || error);
+  }
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 async function handleSocialAuthResponse(res, responseText, dispatch) {
@@ -95,34 +127,43 @@ export const loginWithGoogleIdToken = async (idToken, dispatch) => {
 
     console.log('[loginWithGoogleIdToken] Using backend URL:', baseURL);
     console.log('[loginWithGoogleIdToken] Sending idToken to backend');
-    
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
 
-    const res = await fetch(`${baseURL}users/auth/google`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ idToken }),
-      signal: controller.signal,
-    });
-    
-    clearTimeout(timeoutId);
+    await warmUpBackendIfNeeded();
+
+    const requestUrl = `${baseURL}users/auth/google`;
+    let res;
+    try {
+      res = await fetchWithTimeout(requestUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ idToken }),
+      });
+    } catch (firstError) {
+      // One retry helps when Render wakes up right after the first timeout.
+      console.log('[loginWithGoogleIdToken] First attempt failed, retrying once:', firstError?.message || firstError);
+      res = await fetchWithTimeout(requestUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ idToken }),
+      });
+    }
+
     console.log('[loginWithGoogleIdToken] Backend response status:', res.status);
-    
+
     const responseText = await res.text();
     console.log('[loginWithGoogleIdToken] Backend response body:', responseText.slice(0, 200));
-    
+
     await handleSocialAuthResponse(res, responseText, dispatch);
   } catch (err) {
     console.error('[loginWithGoogleIdToken] Error:', err.message, err);
-    
+
     let errorMessage = err.message;
     if (err.message === 'Network request failed' || err instanceof TypeError) {
-      errorMessage = `Cannot reach backend at ${baseURL}. Make sure:\n1. Backend server is running\n2. Your device is on the same Wi-Fi as the backend\n3. The IP address in app.json is correct`;
+      errorMessage = `Cannot reach backend at ${baseURL}. Make sure:\n1. Render is live\n2. You installed the latest APK\n3. Internet is available on your phone`;
     } else if (err.name === 'AbortError') {
-      errorMessage = 'Backend request timed out. Check your connection.';
+      errorMessage = 'Backend request timed out. Render may be waking up; wait 15-30 seconds and try again.';
     }
-    
+
     Toast.show({
       topOffset: 60,
       type: 'error',
