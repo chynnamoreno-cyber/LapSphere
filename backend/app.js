@@ -27,6 +27,18 @@ app.use(`${config.apiPrefix}/stock-alerts`, stockAlertRoutes);
 app.use(`${config.apiPrefix}/promos`, promoRoutes);
 app.use(`${config.apiPrefix}/notifications`, notificationRoutes);
 
+app.get("/", (req, res) => {
+  const forwardedProto = String(req.get("x-forwarded-proto") || "").trim();
+  const protocol = forwardedProto || req.protocol || "https";
+  const base = `${protocol}://${req.get("host")}`;
+  return res.status(200).json({
+    ok: true,
+    message: "LapSphere backend is running.",
+    apiBase: `${base}${config.apiPrefix}`,
+    health: `${base}${config.apiPrefix}/health`,
+  });
+});
+
 app.get(`${config.apiPrefix}/health`, (_req, res) => {
   res.status(200).json({ ok: true, message: "Backend config scaffold is running." });
 });
