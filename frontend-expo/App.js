@@ -247,14 +247,17 @@ function AppInner() {
           return false;
         }
 
-        // Get Expo push token - simple and reliable
-        console.log('[Push] 🎟️  Requesting Expo push token...');
+        // Choose token strategy based on runtime.
+        // Expo Go: Expo token path.
+        // Dev client / standalone Android: prefer native FCM token path.
+        console.log('[Push] 🎟️  Requesting push token...');
         
         const projectId =
           Constants.expoConfig?.extra?.eas?.projectId ||
           Constants.easConfig?.projectId ||
           process.env.EXPO_PUBLIC_EAS_PROJECT_ID;
         console.log('[Push] Project ID:', projectId || '(none)');
+        console.log('[Push] App ownership:', Constants.appOwnership || '(none)');
 
         try {
           const jwt = await getJwtToken();
@@ -265,49 +268,48 @@ function AppInner() {
 
           let pushToken = '';
           let pushTokenType = 'expo';
+          const preferNativeFcm = Platform.OS === 'android' && Constants.appOwnership !== 'expo';
 
-          // Primary: Expo push token (works for Expo push service)
-          try {
-            const expoToken = projectId
-              ? await Notifications.getExpoPushTokenAsync({ projectId })
-              : await Notifications.getExpoPushTokenAsync();
-
-            if (expoToken?.data) {
-              pushToken = expoToken.data;
-              pushTokenType = 'expo';
-              console.log('[Push] ✅ Got Expo token:', pushToken.substring(0, 50) + '...');
-            }
-          } catch (tokenError) {
-            console.warn('[Push] Expo token with projectId failed, retrying without projectId');
-            console.log('[Push] Expo token error:', tokenError?.message?.substring(0, 100));
-
-            // Fallback for environments where projectId resolution is flaky.
-            try {
-              const expoTokenFallback = await Notifications.getExpoPushTokenAsync();
-              if (expoTokenFallback?.data) {
-                pushToken = expoTokenFallback.data;
-                pushTokenType = 'expo';
-                console.log('[Push] ✅ Got Expo token (fallback):', pushToken.substring(0, 50) + '...');
-              }
-            } catch (fallbackError) {
-              console.log('[Push] Expo token fallback error:', fallbackError?.message?.substring(0, 100));
-            }
-          }
-
-          // Fallback: Android native FCM token for dev/prod builds.
-          // iOS APNs token is not sent by this backend path.
-          if (!pushToken && Platform.OS === 'android') {
+          if (preferNativeFcm) {
             try {
               const deviceToken = await Notifications.getDevicePushTokenAsync();
               const nativeToken = deviceToken?.data;
               if (nativeToken) {
                 pushToken = String(nativeToken);
                 pushTokenType = 'fcm';
-                console.log('[Push] ✅ Got device token fallback:', pushToken.substring(0, 50) + '...');
+                console.log('[Push] ✅ Got Android native FCM token:', pushToken.substring(0, 50) + '...');
               }
             } catch (deviceTokenError) {
-              console.warn('[Push] Device token fallback failed');
+              console.warn('[Push] Native FCM token failed, falling back to Expo token');
               console.log('[Push] Device token error:', deviceTokenError?.message?.substring(0, 100));
+            }
+          }
+
+          if (!pushToken) {
+            try {
+              const expoToken = projectId
+                ? await Notifications.getExpoPushTokenAsync({ projectId })
+                : await Notifications.getExpoPushTokenAsync();
+
+              if (expoToken?.data) {
+                pushToken = expoToken.data;
+                pushTokenType = 'expo';
+                console.log('[Push] ✅ Got Expo token:', pushToken.substring(0, 50) + '...');
+              }
+            } catch (tokenError) {
+              console.warn('[Push] Expo token with projectId failed, retrying without projectId');
+              console.log('[Push] Expo token error:', tokenError?.message?.substring(0, 100));
+
+              try {
+                const expoTokenFallback = await Notifications.getExpoPushTokenAsync();
+                if (expoTokenFallback?.data) {
+                  pushToken = expoTokenFallback.data;
+                  pushTokenType = 'expo';
+                  console.log('[Push] ✅ Got Expo token (fallback):', pushToken.substring(0, 50) + '...');
+                }
+              } catch (fallbackError) {
+                console.log('[Push] Expo token fallback error:', fallbackError?.message?.substring(0, 100));
+              }
             }
           }
 
