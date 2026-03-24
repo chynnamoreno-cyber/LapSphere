@@ -210,12 +210,40 @@ function AppInner() {
       }).catch((err) => console.warn('[Notification] Android default channel setup:', err.message));
     }
 
-    // Listen for notifications while app is in foreground
+    // Listen for notifications while app is in foreground.
+    // Android can suppress remote banners while app is active, so we mirror
+    // key notifications locally to ensure a visible popup for the user.
     const subscription = Notifications.addNotificationReceivedListener((notification) => {
+      const content = notification?.request?.content || {};
+      const data = content?.data || {};
+      const type = String(data?.type || '').toLowerCase();
+      const route = String(data?.route || '').toLowerCase();
+      const localEcho = String(data?.localEcho || '').toLowerCase() === 'true';
+
       console.log('[Notification] Received in foreground:', {
-        title: notification.request.content.title,
-        body: notification.request.content.body,
+        title: content.title,
+        body: content.body,
+        type,
+        route,
       });
+
+      const isOrderOrPromo =
+        type === 'promo' ||
+        type === 'order_status' ||
+        route === 'order-details' ||
+        route === 'notifications';
+
+      if (isOrderOrPromo && !localEcho) {
+        Notifications.scheduleNotificationAsync({
+          content: {
+            title: content.title || 'Notification',
+            body: content.body || '',
+            sound: 'default',
+            data: { ...data, localEcho: 'true' },
+          },
+          trigger: null,
+        }).catch(() => {});
+      }
     });
 
     return () => subscription.remove();

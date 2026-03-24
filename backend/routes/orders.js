@@ -487,6 +487,7 @@ router.put("/:id", authJwt, async (req, res) => {
         title: requestTitle,
         body: requestBody,
         data: {
+          type: "order_status",
           orderId: updated.id || updated._id,
           status: actualStatus,
           route: "order-details",
@@ -535,6 +536,7 @@ router.put("/:id", authJwt, async (req, res) => {
         title: notificationTitle,
         body: notificationBody,
         data: {
+          type: "order_status",
           orderId: updated.id || updated._id,
           status: actualStatus,
           route: "order-details",
@@ -635,6 +637,7 @@ router.put("/:id/approve-cancellation", authJwt, async (req, res) => {
       title: notificationTitle,
       body: notificationBody,
       data: {
+        type: "order_status",
         orderId: updated.id || updated._id,
         status: updated.status,
         route: "order-details",
