@@ -254,7 +254,7 @@ function AppInner() {
           Constants.expoConfig?.extra?.eas?.projectId ||
           Constants.easConfig?.projectId ||
           process.env.EXPO_PUBLIC_EAS_PROJECT_ID;
-        console.log('[Push] Project ID:', projectId);
+        console.log('[Push] Project ID:', projectId || '(none)');
 
         try {
           const jwt = await getJwtToken();
@@ -268,15 +268,30 @@ function AppInner() {
 
           // Primary: Expo push token (works for Expo push service)
           try {
-            const expoToken = await Notifications.getExpoPushTokenAsync({ projectId });
+            const expoToken = projectId
+              ? await Notifications.getExpoPushTokenAsync({ projectId })
+              : await Notifications.getExpoPushTokenAsync();
+
             if (expoToken?.data) {
               pushToken = expoToken.data;
               pushTokenType = 'expo';
               console.log('[Push] ✅ Got Expo token:', pushToken.substring(0, 50) + '...');
             }
           } catch (tokenError) {
-            console.warn('[Push] Expo token unavailable, trying device token fallback');
+            console.warn('[Push] Expo token with projectId failed, retrying without projectId');
             console.log('[Push] Expo token error:', tokenError?.message?.substring(0, 100));
+
+            // Fallback for environments where projectId resolution is flaky.
+            try {
+              const expoTokenFallback = await Notifications.getExpoPushTokenAsync();
+              if (expoTokenFallback?.data) {
+                pushToken = expoTokenFallback.data;
+                pushTokenType = 'expo';
+                console.log('[Push] ✅ Got Expo token (fallback):', pushToken.substring(0, 50) + '...');
+              }
+            } catch (fallbackError) {
+              console.log('[Push] Expo token fallback error:', fallbackError?.message?.substring(0, 100));
+            }
           }
 
           // Fallback: Android native FCM token for dev/prod builds.
@@ -298,6 +313,12 @@ function AppInner() {
 
           if (!pushToken) {
             console.warn('[Push] ❌ No push token available to register');
+            Toast.show({
+              topOffset: 60,
+              type: 'error',
+              text1: 'Push token unavailable',
+              text2: 'Please reopen the app and allow notifications.',
+            });
             return false;
           }
 
