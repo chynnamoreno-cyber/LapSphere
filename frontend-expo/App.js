@@ -325,7 +325,10 @@ function AppInner() {
           // Check for type mismatch (e.g., Expo token wrongly stored as FCM).
           // This can happen after DB corrections or token type updates.
           if (pushToken && pushToken.startsWith("ExponentPushToken") && pushTokenType !== "expo") {
-            console.log("[Push] ⚠️ Token type mismatch detected (Expo token stored as " + pushTokenType + "). Forcing re-registration...");
+            console.log("[Push] ⚠️ Token type mismatch detected!");
+            console.log(`[Push]    Current app type: ${pushTokenType}`);
+            console.log(`[Push]    Correct type: expo`);
+            console.log("[Push]    Forcing re-registration...");
             pushTokenType = "expo";
           }
 
@@ -333,11 +336,13 @@ function AppInner() {
           const registrationCacheKey = `registeredPushToken:${authUserId}:${pushTokenType}`;
           const storedToken = await AsyncStorage.getItem(registrationCacheKey);
           const backendAlreadyRegistered = await backendHasPushToken(jwt, pushTokenType);
-          if (
-            storedToken === pushToken &&
-            backendAlreadyRegistered &&
-            (pushTokenType !== "fcm" || !pushToken.startsWith("ExponentPushToken"))
-          ) {
+          
+          // Skip registration ONLY if:
+          // - Stored token matches current token AND
+          // - Backend says token is registered with correct type AND
+          // - There's NO type mismatch (Expo token stored as FCM is definitely a mismatch to fix)
+          const hasMismatch = pushToken.startsWith("ExponentPushToken") && pushTokenType === "fcm";
+          if (storedToken === pushToken && backendAlreadyRegistered && !hasMismatch) {
             console.log('[Push] Token unchanged for current user, skipping registration');
             return true;
           }
