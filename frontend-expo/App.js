@@ -5,7 +5,7 @@
  * - SQLite: persistent cart storage (see assets/common/sqliteCart.js).
  * - DrawerNavigator contains the main bottom tabs (Home, Cart, Admin, User).
  */
-import { StyleSheet, Platform, LogBox, Linking } from 'react-native';
+import { StyleSheet, Platform, LogBox, Linking, AppState } from 'react-native';
 import React, { useContext, useEffect, useRef, useState } from 'react';
 import { NavigationContainer, createNavigationContainerRef } from '@react-navigation/native';
 import { Provider as PaperProvider } from 'react-native-paper';
@@ -346,10 +346,22 @@ function AppInner() {
             const data = await response.json();
             console.log('[Push] ✅ SUCCESS: Token registered:', data);
             await AsyncStorage.setItem(registrationCacheKey, pushToken);
+            Toast.show({
+              topOffset: 60,
+              type: 'success',
+              text1: 'Push notifications enabled',
+              text2: 'Your device is now registered for alerts.',
+            });
             return true;
           } else {
             const errorData = await response.json().catch(() => ({}));
             console.error('[Push] ❌ Registration failed:', response.status, errorData?.message);
+            Toast.show({
+              topOffset: 60,
+              type: 'error',
+              text1: 'Push registration failed',
+              text2: errorData?.message || `HTTP ${response.status}`,
+            });
             return false;
           }
         } catch (tokenError) {
@@ -383,8 +395,16 @@ function AppInner() {
     bootstrap();
     const interval = setInterval(registerPushToken, 5 * 60 * 1000);
 
+    // Re-check token whenever app returns to foreground.
+    const appStateSub = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active') {
+        registerPushToken();
+      }
+    });
+
     return () => {
       clearInterval(interval);
+      appStateSub?.remove?.();
       if (pushRetryTimerRef.current) {
         clearInterval(pushRetryTimerRef.current);
         pushRetryTimerRef.current = null;
