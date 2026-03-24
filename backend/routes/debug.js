@@ -253,4 +253,55 @@ router.post("/send-push-direct", authJwt, async (req, res) => {
   }
 });
 
+// POST /debug/fix-token-types — ADMIN ONLY: Fix Expo tokens stored as FCM
+router.post("/fix-token-types", authJwt, async (req, res) => {
+  try {
+    if (!req.user?.isAdmin) {
+      return res.status(403).json({ message: "Admin access required" });
+    }
+
+    console.log("[debug.fix-token-types] Starting Expo token type correction...");
+
+    // Find all users with ExponentPushToken but pushTokenType !== "expo"
+    const expoMismatches = await User.find({
+      pushToken: /^ExponentPushToken/,
+      pushTokenType: { $ne: "expo" }
+    }).select("id name email pushToken pushTokenType");
+
+    console.log(`[debug.fix-token-types] Found ${expoMismatches.length} Expo tokens with wrong type`);
+
+    const corrected = [];
+    for (const user of expoMismatches) {
+      const oldType = user.pushTokenType;
+      const result = await User.findByIdAndUpdate(
+        user._id,
+        { pushTokenType: "expo" },
+        { new: true }
+      ).select("id name email pushToken pushTokenType");
+
+      corrected.push({
+        userId: user._id,
+        name: user.name,
+        email: user.email,
+        oldType,
+        newType: "expo",
+        token: user.pushToken.substring(0, 20) + "...",
+      });
+      console.log(`[debug.fix-token-types] Corrected ${user.email}: ${oldType} → expo`);
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: `Corrected ${corrected.length} Expo token types`,
+      corrected,
+    });
+  } catch (error) {
+    console.error("[debug.fix-token-types] Error:", error.message, error.stack);
+    return res.status(500).json({
+      message: "Failed to fix token types",
+      error: error.message,
+    });
+  }
+});
+
 module.exports = router;
