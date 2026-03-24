@@ -88,8 +88,6 @@ if (Constants.appOwnership === 'expo') {
 // MUST be at module level - tells Expo how to handle notifications in the foreground
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
-    // Legacy compatibility for Android/older Expo notification presentation paths.
-    shouldShowAlert: true,
     shouldShowBanner: true,
     shouldShowList: true,
     shouldPlaySound: true,
