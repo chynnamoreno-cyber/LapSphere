@@ -322,11 +322,22 @@ function AppInner() {
             return false;
           }
 
+          // Check for type mismatch (e.g., Expo token wrongly stored as FCM).
+          // This can happen after DB corrections or token type updates.
+          if (pushToken && pushToken.startsWith("ExponentPushToken") && pushTokenType !== "expo") {
+            console.log("[Push] ⚠️ Token type mismatch detected (Expo token stored as " + pushTokenType + "). Forcing re-registration...");
+            pushTokenType = "expo";
+          }
+
           // Cache token per user and type so one account/token type does not block another.
           const registrationCacheKey = `registeredPushToken:${authUserId}:${pushTokenType}`;
           const storedToken = await AsyncStorage.getItem(registrationCacheKey);
           const backendAlreadyRegistered = await backendHasPushToken(jwt, pushTokenType);
-          if (storedToken === pushToken && backendAlreadyRegistered) {
+          if (
+            storedToken === pushToken &&
+            backendAlreadyRegistered &&
+            (pushTokenType !== "fcm" || !pushToken.startsWith("ExponentPushToken"))
+          ) {
             console.log('[Push] Token unchanged for current user, skipping registration');
             return true;
           }
