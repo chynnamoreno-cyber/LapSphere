@@ -7,6 +7,27 @@ const Product = require("../models/Product");
 
 const router = express.Router();
 
+async function getLatestPushTokensForUsers(userIds = []) {
+  const ids = (userIds || []).filter(Boolean);
+  if (ids.length === 0) return [];
+
+  const users = await User.find(
+    {
+      _id: { $in: ids },
+      pushToken: { $exists: true, $ne: null, $ne: "" },
+    },
+    "pushToken pushTokenType"
+  ).lean();
+
+  return users
+    .map((u) => {
+      const token = String(u?.pushToken || "").trim();
+      if (!token) return null;
+      return { token, type: u?.pushTokenType || "fcm" };
+    })
+    .filter(Boolean);
+}
+
 // GET /promos — public endpoint to fetch active promos grouped by discount
 router.get("/", async (req, res) => {
   try {
@@ -203,18 +224,10 @@ router.post("/broadcast", authJwt, async (req, res) => {
     const allCustomers = await User.find({ isAdmin: false }).select("_id").lean();
     console.log(`[promos.broadcast] Found ${allCustomers.length} total non-admin users`);
 
-    // Step 1b: Get users WITH push tokens for actual push notifications
-    const recipients = await User.find(
-      { 
-        isAdmin: false,
-        pushToken: { $exists: true, $ne: null, $ne: "" }
-      },
-      "pushToken pushTokenType"
-    ).lean();
-
-    const tokens = recipients
-      .filter((user) => user.pushToken)
-      .map((user) => ({ token: user.pushToken, type: user.pushTokenType || "fcm" }));
+    // Step 1b: Resolve latest push tokens from user IDs at send time.
+    // This avoids missing sends when token fields on older snapshots are stale.
+    const customerIds = allCustomers.map((u) => u._id);
+    const tokens = await getLatestPushTokensForUsers(customerIds);
 
     // Optional: include sender's own device token (useful when admin tests broadcast on same phone).
     if (includeSender) {
@@ -233,7 +246,7 @@ router.post("/broadcast", authJwt, async (req, res) => {
       }
     }
 
-    console.log(`[promos.broadcast] Recipients with push tokens: ${tokens.length} tokens from ${recipients.length} users`);
+    console.log(`[promos.broadcast] Recipients with push tokens: ${tokens.length} tokens from ${allCustomers.length} users`);
 
     // Step 2: Save promo notification to database for ALL non-admin users
     // This ensures even users without push tokens see it in NotificationCenter
@@ -396,7 +409,9 @@ router.post("/test/send-notification", authJwt, async (req, res) => {
         return res.status(404).json({ message: "User not found" });
       }
 
-      if (!user.pushToken || !user.pushToken.trim()) {
+      const directTokens = await getLatestPushTokensForUsers([user._id]);
+
+      if (directTokens.length === 0) {
         console.log(`[promos.test] User ${user.name} (${user.email}) has no push token registered`);
         return res.status(400).json({ 
           message: "User has no push token registered",
@@ -404,11 +419,10 @@ router.post("/test/send-notification", authJwt, async (req, res) => {
         });
       }
 
-      console.log(`[promos.test] User ${user.name} has ${user.pushTokenType} token: ${user.pushToken.substring(0, 40)}...`);
-      const tokens = [{ token: user.pushToken, type: user.pushTokenType || "fcm" }];
+      console.log(`[promos.test] User ${user.name} has ${directTokens[0].type} token: ${directTokens[0].token.substring(0, 40)}...`);
       
       console.log(`[promos.test] Sending to 1 device...`);
-      await sendToTokens(tokens, {
+      await sendToTokens(directTokens, {
         title,
         body: message,
         data: {
@@ -423,7 +437,7 @@ router.post("/test/send-notification", authJwt, async (req, res) => {
         message: "Test notification sent to user",
         sent: 1,
         userId,
-        userInfo: { name: user.name, email: user.email, tokenType: user.pushTokenType },
+        userInfo: { name: user.name, email: user.email, tokenType: directTokens[0].type },
       });
     } else {
       // Send to all non-admin users with tokens
@@ -433,18 +447,12 @@ router.post("/test/send-notification", authJwt, async (req, res) => {
       console.log(`[promos.test] Total non-admin users: ${totalUsers}`);
       
       const recipients = await User.find(
-        { isAdmin: false, pushToken: { $exists: true, $ne: null, $ne: "" } },
-        "name email pushToken pushTokenType"
+        { isAdmin: false },
+        "_id name email"
       ).lean();
 
-      console.log(`[promos.test] Users with push tokens: ${recipients.length}`);
-      recipients.forEach((u, i) => {
-        console.log(`  [${i + 1}] ${u.name} (${u.email}): ${u.pushTokenType} - ${u.pushToken.substring(0, 30)}...`);
-      });
-
-      const tokens = recipients
-        .filter((u) => u.pushToken && u.pushToken.trim())
-        .map((u) => ({ token: u.pushToken, type: u.pushTokenType || "fcm" }));
+      const tokens = await getLatestPushTokensForUsers(recipients.map((u) => u._id));
+      console.log(`[promos.test] Users with push tokens: ${tokens.length}`);
 
       // Optionally include the requesting admin's own device for easier end-to-end testing.
       let senderIncluded = false;
