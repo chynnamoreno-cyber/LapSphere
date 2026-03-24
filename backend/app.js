@@ -10,6 +10,7 @@ const orderRoutes = require("./routes/orders");
 const stockAlertRoutes = require("./routes/stockAlerts");
 const promoRoutes = require("./routes/promos");
 const notificationRoutes = require("./routes/notifications");
+const debugRoutes = require("./routes/debug");
 
 const app = express();
 
@@ -26,6 +27,7 @@ app.use(`${config.apiPrefix}/orders`, orderRoutes);
 app.use(`${config.apiPrefix}/stock-alerts`, stockAlertRoutes);
 app.use(`${config.apiPrefix}/promos`, promoRoutes);
 app.use(`${config.apiPrefix}/notifications`, notificationRoutes);
+app.use(`${config.apiPrefix}/debug`, debugRoutes);
 
 app.get("/", (req, res) => {
   const forwardedProto = String(req.get("x-forwarded-proto") || "").trim();
