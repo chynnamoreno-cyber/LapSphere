@@ -11,15 +11,89 @@ router.post("/send-push-direct", authJwt, async (req, res) => {
       return res.status(403).json({ message: "Admin access required" });
     }
 
-    // Get the current user's push token
-    const user = await User.findById(req.user.userId).select("name email pushToken pushTokenType").lean();
+    // Get the current user's push token, or fall back to all registered users if admin has none
+    let user = await User.findById(req.user.userId).select("name email pushToken pushTokenType").lean();
     if (!user) {
-      return res.status(404).json({ message: "Admin user not found" });
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    // If requester has no token but is admin, send to all non-admin users with tokens
+    if ((!user.pushToken || !user.pushToken.trim()) && req.user.isAdmin) {
+      console.log(`[debug.send-push-direct] Admin has no token, sending to all users with tokens instead`);
+      const recipients = await User.find(
+        { pushToken: { $exists: true, $ne: null, $ne: "" } },
+        "name email pushToken pushTokenType"
+      ).lean();
+
+      if (recipients.length === 0) {
+        return res.status(400).json({
+          message: "No users with push tokens found",
+          note: "At least one user needs to log in and grant notifications first",
+        });
+      }
+
+      console.log(`[debug.send-push-direct] Found ${recipients.length} user(s) with tokens. Sending direct push to all...`);
+
+      const allResults = [];
+      for (const recipient of recipients) {
+        try {
+          if (recipient.pushTokenType === "expo" || recipient.pushToken.startsWith("ExponentPushToken")) {
+            const message = {
+              to: recipient.pushToken,
+              sound: "default",
+              priority: "high",
+              channelId: "lapsphere-high",
+              title: "🔔 DIRECT TEST PUSH",
+              body: "This is a direct test. Check if you see a notification popup!",
+              data: {
+                type: "debug_direct_test",
+                timestamp: new Date().toISOString(),
+              },
+            };
+
+            const response = await fetch("https://exp.host/--/api/v2/push/send", {
+              method: "POST",
+              headers: {
+                Accept: "application/json",
+                "Accept-Encoding": "gzip, deflate",
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify(message),
+            });
+
+            const responseBody = await response.text();
+            let responseData;
+            try {
+              responseData = JSON.parse(responseBody);
+            } catch (e) {
+              responseData = { raw: responseBody };
+            }
+
+            allResults.push({
+              user: { name: recipient.name, email: recipient.email },
+              expoStatus: response.status,
+              expoResponse: responseData,
+            });
+          }
+        } catch (e) {
+          allResults.push({
+            user: { name: recipient.name, email: recipient.email },
+            error: e.message,
+          });
+        }
+      }
+
+      return res.status(200).json({
+        success: true,
+        message: "Direct push sent to all registered users",
+        sentCount: recipients.length,
+        results: allResults,
+      });
     }
 
     if (!user.pushToken || !user.pushToken.trim()) {
       return res.status(400).json({
-        message: "Admin has no push token registered",
+        message: "User has no push token registered",
         user: { name: user.name, email: user.email },
       });
     }
