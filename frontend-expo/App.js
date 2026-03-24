@@ -434,8 +434,6 @@ function AppInner() {
           pushRetryTimerRef.current = null;
         }
       }, 30000);
-         console.log(`[Push] 📊 REQUEST DETAILS: endpoint=${baseURL}users/push-token, token=${pushToken.substring(0,30)}..., type=${pushTokenType}, user=${authUserId}`);
-         console.log(`[Push] 📊 RESPONSE: HTTP ${response.status} ${response.statusText}`);
     };
 
     const bootstrap = async () => {
@@ -461,6 +459,105 @@ function AppInner() {
         clearInterval(pushRetryTimerRef.current);
         pushRetryTimerRef.current = null;
       }
+    };
+  }, [isAuthenticated, authUserId]);
+
+  useEffect(() => {
+    if (!isAuthenticated) return undefined;
+
+    const seenKey = `seenDbNotifications:${authUserId}`;
+    let timer = null;
+
+    const pollNotificationFeed = async () => {
+      try {
+        const jwt = await getJwtToken();
+        if (!jwt) return;
+
+        const response = await fetch(`${baseURL}notifications?limit=10&page=1&unreadOnly=true`, {
+          method: 'GET',
+          headers: {
+            Authorization: `Bearer ${jwt}`,
+          },
+        });
+
+        if (!response.ok) return;
+
+        const payload = await response.json().catch(() => ({}));
+        const items = Array.isArray(payload?.data) ? payload.data : [];
+        if (items.length === 0) return;
+
+        let seen = [];
+        try {
+          const raw = await AsyncStorage.getItem(seenKey);
+          seen = raw ? JSON.parse(raw) : [];
+        } catch (_error) {
+          seen = [];
+        }
+
+        const seenSet = new Set((Array.isArray(seen) ? seen : []).map((id) => String(id)));
+        let changed = false;
+
+        // Surface oldest first so user sees notifications in the right order.
+        const ordered = [...items].reverse();
+        for (const entry of ordered) {
+          const id = String(entry?.id || entry?._id || '').trim();
+          if (!id || seenSet.has(id)) continue;
+
+          const type = String(entry?.type || '').toLowerCase();
+          if (type === 'order_status' || type === 'promo') {
+            const data = entry?.data && typeof entry.data === 'object' ? entry.data : {};
+            const resolvedOrderId =
+              entry?.orderId?.id ||
+              entry?.orderId?._id ||
+              entry?.orderId ||
+              data?.orderId ||
+              '';
+
+            await Notifications.scheduleNotificationAsync({
+              content: {
+                title: entry?.title || 'Notification',
+                body: entry?.message || '',
+                sound: 'default',
+                data: {
+                  ...data,
+                  type,
+                  orderId: resolvedOrderId,
+                  route: type === 'promo' ? 'notifications' : 'order-details',
+                  localEcho: 'true',
+                  source: 'db-poll',
+                },
+              },
+              trigger: null,
+            }).catch(() => {});
+
+            console.log(`[NotifPoll] surfaced ${type}: ${id}`);
+          }
+
+          seenSet.add(id);
+          changed = true;
+        }
+
+        if (changed) {
+          const compactSeen = Array.from(seenSet).slice(-200);
+          await AsyncStorage.setItem(seenKey, JSON.stringify(compactSeen));
+        }
+      } catch (error) {
+        console.log('[NotifPoll] Poll failed:', error?.message?.substring(0, 100));
+      }
+    };
+
+    pollNotificationFeed();
+    timer = setInterval(pollNotificationFeed, 20000);
+
+    const appStateSub = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active') {
+        pollNotificationFeed();
+      }
+    });
+
+    return () => {
+      if (timer) clearInterval(timer);
+      appStateSub?.remove?.();
     };
   }, [isAuthenticated, authUserId]);
 
