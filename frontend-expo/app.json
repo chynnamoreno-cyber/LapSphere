@@ -6,7 +6,6 @@
       "com.lapsphere.itcp239.dev",
       "com.googleusercontent.apps.1061265006776-8k5hac1d8h9flh8l9pripeh18n9m1fsg"
     ],
-    "owner": "chynnamoreno",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -34,10 +33,10 @@
       "favicon": "./assets/favicon.png"
     },
     "extra": {
+      "apiUrl": "https://lapsphere.onrender.com",
       "eas": {
-        "projectId": "45098764-05db-4720-bbe3-a5ec5397787d"
-      },
-      "apiUrl": "https://lapsphere.onrender.com"
+        "projectId": "b5d1ef77-3f7f-475f-a6d1-029c1cde3453"
+      }
     },
     "plugins": [
       "expo-sqlite",
@@ -50,6 +49,7 @@
           "color": "#ffffff"
         }
       ]
-    ]
+    ],
+    "owner": "chynnamoreno-chi"
   }
 }
