@@ -36,6 +36,19 @@ const upload = multer({
   },
 });
 
+function normalizePushTokenType(token, typeHint) {
+  const tokenStr = String(token || "").trim();
+  const type = String(typeHint || "").trim().toLowerCase();
+
+  if (["expo", "fcm", "apns", "unknown"].includes(type)) {
+    return type;
+  }
+
+  if (tokenStr.startsWith("ExponentPushToken")) return "expo";
+  if (tokenStr.startsWith("server-")) return "unknown";
+  return "fcm";
+}
+
 function toBoolean(value) {
   if (typeof value === "boolean") return value;
   if (typeof value === "string") return value.toLowerCase() === "true";
@@ -222,7 +235,7 @@ router.post("/push-token", authJwt, async (req, res) => {
     }
 
     const trimmedToken = String(token).trim();
-    const tokenType = type || (trimmedToken.startsWith("ExponentPushToken") ? "expo" : "fcm");
+    const tokenType = normalizePushTokenType(trimmedToken, type);
     
     console.log(`[POST /push-token] Registering ${tokenType} token for user ${req.user.userId}`);
     console.log(`[POST /push-token] Token (first 40 chars): ${trimmedToken.substring(0, 40)}...`);
@@ -274,6 +287,26 @@ router.get("/push-token", authJwt, async (req, res) => {
   } catch (error) {
     console.error('[GET /push-token] Error:', error.message);
     return res.status(500).json({ message: "Failed to check push token status" });
+  }
+});
+
+// DELETE /users/push-token — remove device push token for the current user
+router.delete("/push-token", authJwt, async (req, res) => {
+  try {
+    const updated = await User.findByIdAndUpdate(
+      req.user.userId,
+      { pushToken: "", pushTokenType: "" },
+      { new: true }
+    ).select("id");
+
+    if (!updated) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    return res.status(200).json({ success: true, message: "Push token removed" });
+  } catch (error) {
+    console.error("[DELETE /push-token] Error:", error.message);
+    return res.status(500).json({ message: "Failed to remove push token" });
   }
 });
 

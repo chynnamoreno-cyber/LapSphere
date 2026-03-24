@@ -3,6 +3,8 @@ import { View, StyleSheet, Dimensions, ScrollView, ActivityIndicator, TouchableO
 import { Surface, Avatar, Divider, Text } from "react-native-paper";
 import { useNavigation } from "@react-navigation/native";
 import { useDispatch } from "react-redux";
+import * as Notifications from "expo-notifications";
+import Constants from "expo-constants";
 import axios from "axios";
 import baseURL from "../../assets/common/baseurl";
 import Toast from "react-native-toast-message";
@@ -21,13 +23,92 @@ const Confirm = (props) => {
     const dispatch = useDispatch();
     const navigation = useNavigation();
 
+    const ensurePushTokenRegistration = async (jwt) => {
+        try {
+            if (!jwt) return false;
+
+            // If token already exists on backend, skip re-registration.
+            try {
+                const statusRes = await fetch(`${baseURL}users/push-token`, {
+                    method: "GET",
+                    headers: { Authorization: `Bearer ${jwt}` },
+                });
+                if (statusRes.ok) {
+                    const statusData = await statusRes.json().catch(() => ({}));
+                    if (statusData?.hasToken === true) {
+                        return true;
+                    }
+                }
+            } catch (_error) {
+                // Continue best-effort registration.
+            }
+
+            const permissions = await Notifications.getPermissionsAsync();
+            let finalStatus = permissions?.status;
+            if (finalStatus !== "granted" && permissions?.canAskAgain !== false) {
+                const requested = await Notifications.requestPermissionsAsync();
+                finalStatus = requested?.status;
+            }
+
+            if (finalStatus !== "granted") {
+                return false;
+            }
+
+            const projectId =
+                Constants.expoConfig?.extra?.eas?.projectId ||
+                Constants.easConfig?.projectId ||
+                process.env.EXPO_PUBLIC_EAS_PROJECT_ID;
+
+            let pushToken = "";
+            let pushTokenType = "expo";
+
+            try {
+                const expoToken = await Notifications.getExpoPushTokenAsync({ projectId });
+                if (expoToken?.data) {
+                    pushToken = String(expoToken.data);
+                    pushTokenType = "expo";
+                }
+            } catch (_expoTokenError) {
+                // Fallback below.
+            }
+
+            if (!pushToken) {
+                try {
+                    const native = await Notifications.getDevicePushTokenAsync();
+                    if (native?.data) {
+                        pushToken = String(native.data);
+                        pushTokenType = "fcm";
+                    }
+                } catch (_nativeError) {
+                    // Ignore and continue.
+                }
+            }
+
+            if (!pushToken) return false;
+
+            const registerRes = await fetch(`${baseURL}users/push-token`, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${jwt}`,
+                },
+                body: JSON.stringify({ token: pushToken, type: pushTokenType }),
+            });
+
+            return registerRes.ok;
+        } catch (_error) {
+            return false;
+        }
+    };
+
     const confirmOrder = () => {
         if (isProcessing) return;
         setIsProcessing(true);
 
         getJwtToken()
-            .then((res) => {
+            .then(async (res) => {
                 setToken(res || "");
+                await ensurePushTokenRegistration(res || "");
                 const config = { headers: { Authorization: "Bearer " + res } };
                 return axios.post(`${baseURL}orders`, order, config);
             })

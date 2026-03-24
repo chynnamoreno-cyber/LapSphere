@@ -11,6 +11,8 @@ import { addToCart } from "../../Redux/Actions/cartActions";
 
 const { width } = Dimensions.get("window");
 const FALLBACK_IMAGE = "https://cdn.pixabay.com/photo/2012/04/01/17/29/box-23649_960_720.png";
+const EMPTY_OBJECT = Object.freeze({});
+const EMPTY_ARRAY = Object.freeze([]);
 
 const SingleProduct = ({ route }) => {
     const dispatch = useDispatch();
@@ -24,11 +26,11 @@ const SingleProduct = ({ route }) => {
     const productId = useMemo(() => item?.id || item?._id, [item]);
     const product = useSelector((state) => {
         const key = String(productId || "");
-        return state.products?.detailsById?.[key] || item || {};
+        return state.products?.detailsById?.[key] || item || EMPTY_OBJECT;
     });
     const reviews = useSelector((state) => {
         const key = String(productId || "");
-        return state.reviews?.byProductId?.[key] || [];
+        return state.reviews?.byProductId?.[key] || EMPTY_ARRAY;
     });
 
     useEffect(() => {

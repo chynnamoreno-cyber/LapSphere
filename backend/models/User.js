@@ -19,7 +19,7 @@ const userSchema = new mongoose.Schema(
       longitude: { type: Number, default: null },
     },
     pushToken: { type: String, default: "" },
-    pushTokenType: { type: String, enum: ["fcm", "expo", "unknown", ""], default: "" },
+    pushTokenType: { type: String, enum: ["fcm", "expo", "apns", "unknown", ""], default: "" },
   },
   { timestamps: true }
 );

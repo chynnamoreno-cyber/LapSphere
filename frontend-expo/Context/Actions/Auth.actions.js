@@ -1,7 +1,8 @@
 import { jwtDecode } from 'jwt-decode';
 import Toast from 'react-native-toast-message';
 import baseURL from '../../assets/common/baseurl';
-import { setJwtToken, removeJwtToken } from '../../assets/common/authToken';
+import { getJwtToken, setJwtToken, removeJwtToken } from '../../assets/common/authToken';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export const SET_CURRENT_USER = 'SET_CURRENT_USER';
 
@@ -217,7 +218,27 @@ export const getUserProfile = (id) => {
     .then((data) => console.log(data));
 };
 
-export const logoutUser = (dispatch) => {
+export const logoutUser = async (dispatch) => {
+  try {
+    const jwt = await getJwtToken();
+    if (jwt) {
+      await fetch(`${baseURL}users/push-token`, {
+        method: 'DELETE',
+        headers: {
+          Authorization: `Bearer ${jwt}`,
+        },
+      }).catch(() => {});
+    }
+
+    const keys = await AsyncStorage.getAllKeys();
+    const pushCacheKeys = keys.filter((k) => String(k).startsWith('registeredPushToken:'));
+    if (pushCacheKeys.length > 0) {
+      await AsyncStorage.multiRemove(pushCacheKeys);
+    }
+  } catch (_error) {
+    // Best effort cache cleanup.
+  }
+
   removeJwtToken();
   dispatch(setCurrentUser({}));
 };

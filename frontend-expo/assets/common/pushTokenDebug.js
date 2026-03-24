@@ -31,10 +31,19 @@ export async function checkPushTokenStatus() {
  */
 export async function getLocalPushTokenInfo() {
   try {
-    const registered = await AsyncStorage.getItem("registeredPushToken");
+    const keys = await AsyncStorage.getAllKeys();
+    const registrationKeys = keys.filter((k) => String(k).startsWith("registeredPushToken:"));
+    const values = registrationKeys.length ? await AsyncStorage.multiGet(registrationKeys) : [];
+
+    const previews = values
+      .map(([, value]) => String(value || "").trim())
+      .filter(Boolean)
+      .map((value) => value.substring(0, 20) + "...");
+
     return {
-      registered: Boolean(registered),
-      tokenPreview: registered ? registered.substring(0, 20) + "..." : null,
+      registered: previews.length > 0,
+      cacheKeyCount: registrationKeys.length,
+      tokenPreview: previews[0] || null,
     };
   } catch (error) {
     console.error("[getLocalPushTokenInfo] Error:", error.message);

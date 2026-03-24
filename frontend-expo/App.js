@@ -5,7 +5,7 @@
  * - SQLite: persistent cart storage (see assets/common/sqliteCart.js).
  * - DrawerNavigator contains the main bottom tabs (Home, Cart, Admin, User).
  */
-import { StyleSheet, Platform, LogBox } from 'react-native';
+import { StyleSheet, Platform, LogBox, Linking } from 'react-native';
 import React, { useContext, useEffect, useRef, useState } from 'react';
 import { NavigationContainer, createNavigationContainerRef } from '@react-navigation/native';
 import { Provider as PaperProvider } from 'react-native-paper';
@@ -34,6 +34,26 @@ import {
 } from './assets/common/sqliteCart';
 import { getNotificationTarget } from './assets/common/notificationRouting';
 import { getJwtToken } from './assets/common/authToken';
+
+async function backendHasPushToken(jwt, expectedType) {
+  try {
+    const response = await fetch(`${baseURL}users/push-token`, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${jwt}`,
+      },
+    });
+
+    if (!response.ok) return false;
+
+    const data = await response.json().catch(() => ({}));
+    const hasToken = data?.hasToken === true;
+    const tokenType = String(data?.tokenType || '');
+    return hasToken && tokenType === String(expectedType || '');
+  } catch (_error) {
+    return false;
+  }
+}
 
 // Polyfills for web platform
 if (Platform.OS === 'web') {
@@ -162,6 +182,13 @@ function CartPersistenceBridge() {
 function AppInner() {
   const context = useContext(AuthGlobal);
   const handledNotificationIds = useRef(new Set());
+  const pushRetryTimerRef = useRef(null);
+  const isAuthenticated = context?.stateUser?.isAuthenticated === true;
+  const authUserId =
+    context?.stateUser?.user?.userId ||
+    context?.stateUser?.user?.id ||
+    context?.stateUser?.user?.sub ||
+    'jwt-user';
 
   useEffect(() => {
     // Setup Android notification channel for better compatibility
@@ -195,38 +222,46 @@ function AppInner() {
   }, []);
 
   useEffect(() => {
+    if (!isAuthenticated) return undefined;
+
     const registerPushToken = async () => {
       try {
-        // Request permissions
-        const { status: existingStatus } = await Notifications.getPermissionsAsync();
-        let finalStatus = existingStatus;
-        if (finalStatus !== 'granted') {
-          const { status } = await Notifications.requestPermissionsAsync();
-          finalStatus = status;
+        // Request permissions only after sign-in to reduce accidental deny at app startup.
+        const permission = await Notifications.getPermissionsAsync();
+        let finalStatus = permission?.status;
+        if (finalStatus !== 'granted' && permission?.canAskAgain !== false) {
+          const requested = await Notifications.requestPermissionsAsync();
+          finalStatus = requested?.status;
         }
         if (finalStatus !== 'granted') {
           console.log('[Push] Notification permissions not granted (Status:', finalStatus, ')');
-          return;
+          if (permission?.canAskAgain === false) {
+            Toast.show({
+              topOffset: 60,
+              type: 'info',
+              text1: 'Enable notifications in settings',
+              text2: 'Push alerts are disabled for LapSphere.',
+            });
+            Linking.openSettings().catch(() => {});
+          }
+          return false;
         }
 
         // Get Expo push token - simple and reliable
         console.log('[Push] 🎟️  Requesting Expo push token...');
         
-        const projectId = Constants.expoConfig?.extra?.eas?.projectId || '45098764-05db-4720-bbe3-a5ec5397787d';
+        const projectId =
+          Constants.expoConfig?.extra?.eas?.projectId ||
+          Constants.easConfig?.projectId ||
+          process.env.EXPO_PUBLIC_EAS_PROJECT_ID;
         console.log('[Push] Project ID:', projectId);
 
         try {
           const jwt = await getJwtToken();
           if (!jwt) {
             console.log('[Push] No JWT token available yet, deferring token registration');
-            return;
+            return false;
           }
-
-          const authUserId =
-            context?.stateUser?.user?.userId ||
-            context?.stateUser?.user?.id ||
-            context?.stateUser?.user?.sub ||
-            'jwt-user';
 
           let pushToken = '';
           let pushTokenType = 'expo';
@@ -244,14 +279,15 @@ function AppInner() {
             console.log('[Push] Expo token error:', tokenError?.message?.substring(0, 100));
           }
 
-          // Fallback: native device token (FCM/APNs) for dev/prod builds
-          if (!pushToken) {
+          // Fallback: Android native FCM token for dev/prod builds.
+          // iOS APNs token is not sent by this backend path.
+          if (!pushToken && Platform.OS === 'android') {
             try {
               const deviceToken = await Notifications.getDevicePushTokenAsync();
               const nativeToken = deviceToken?.data;
               if (nativeToken) {
                 pushToken = String(nativeToken);
-                pushTokenType = Platform.OS === 'ios' ? 'apns' : 'fcm';
+                pushTokenType = 'fcm';
                 console.log('[Push] ✅ Got device token fallback:', pushToken.substring(0, 50) + '...');
               }
             } catch (deviceTokenError) {
@@ -262,15 +298,16 @@ function AppInner() {
 
           if (!pushToken) {
             console.warn('[Push] ❌ No push token available to register');
-            return;
+            return false;
           }
 
           // Cache token per user and type so one account/token type does not block another.
           const registrationCacheKey = `registeredPushToken:${authUserId}:${pushTokenType}`;
           const storedToken = await AsyncStorage.getItem(registrationCacheKey);
-          if (storedToken === pushToken) {
+          const backendAlreadyRegistered = await backendHasPushToken(jwt, pushTokenType);
+          if (storedToken === pushToken && backendAlreadyRegistered) {
             console.log('[Push] Token unchanged for current user, skipping registration');
-            return;
+            return true;
           }
 
           // Register token with backend
@@ -288,25 +325,51 @@ function AppInner() {
             const data = await response.json();
             console.log('[Push] ✅ SUCCESS: Token registered:', data);
             await AsyncStorage.setItem(registrationCacheKey, pushToken);
+            return true;
           } else {
             const errorData = await response.json().catch(() => ({}));
             console.error('[Push] ❌ Registration failed:', response.status, errorData?.message);
+            return false;
           }
         } catch (tokenError) {
           console.warn('[Push] ⚠️ Token registration failed.');
           console.log('[Push] Error details:', tokenError?.message?.substring(0, 100));
+          return false;
         }
       } catch (error) {
         console.warn('[Push] Unexpected error in token registration:', error?.message?.substring(0, 100));
+        return false;
       }
     };
 
-    // Register immediately and periodically
-    registerPushToken();
-    const interval = setInterval(registerPushToken, 30000); // Check every 30 seconds
+    const startRetryLoop = () => {
+      if (pushRetryTimerRef.current) return;
+      pushRetryTimerRef.current = setInterval(async () => {
+        const ok = await registerPushToken();
+        if (ok && pushRetryTimerRef.current) {
+          clearInterval(pushRetryTimerRef.current);
+          pushRetryTimerRef.current = null;
+        }
+      }, 30000);
+    };
 
-    return () => clearInterval(interval);
-  }, []);
+    const bootstrap = async () => {
+      const ok = await registerPushToken();
+      if (!ok) startRetryLoop();
+    };
+
+    // Register immediately, retry quickly on failures, then keep heartbeat checks.
+    bootstrap();
+    const interval = setInterval(registerPushToken, 5 * 60 * 1000);
+
+    return () => {
+      clearInterval(interval);
+      if (pushRetryTimerRef.current) {
+        clearInterval(pushRetryTimerRef.current);
+        pushRetryTimerRef.current = null;
+      }
+    };
+  }, [isAuthenticated, authUserId]);
 
   useEffect(() => {
     const handleNotificationResponse = (response) => {
@@ -365,8 +428,6 @@ function AppInner() {
       subscription.remove();
     };
   }, [context?.stateUser?.user?.isAdmin]);
-
-  const isAuthenticated = context?.stateUser?.isAuthenticated === true;
 
   return (
     <Provider store={store}>

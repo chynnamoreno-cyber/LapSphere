@@ -28,6 +28,21 @@ import { adminTheme } from "../../assets/common/adminTheme";
 
 const { width } = Dimensions.get("window");
 
+const REQUEST_TIMEOUT_MS = 120000;
+
+function isRenderHost(url) {
+    return String(url || "").includes(".onrender.com/");
+}
+
+async function warmUpBackendIfNeeded() {
+    if (!isRenderHost(baseURL)) return;
+    try {
+        await axios.get(`${baseURL}health`, { timeout: 20000 });
+    } catch (_error) {
+        // Ignore warm-up errors and continue with the main request.
+    }
+}
+
 const ProductForm = (props) => {
     const [pickerValue, setPickerValue] = useState("");
     const [brand, setBrand] = useState("");
@@ -185,6 +200,39 @@ const ProductForm = (props) => {
             return;
         }
         setIsSubmitting(true);
+
+        const productId = item?.id ?? item?._id;
+        const shouldUseJsonUpload = Platform.OS === "android";
+
+        const existingImages = images
+            .filter((img) => img?.uri && img.local === false)
+            .map((img) => img.uri);
+
+        const imagesBase64 = images
+            .filter((img) => img?.local && img.base64)
+            .map((img) => ({
+                data: img.base64,
+                mime: img.mime || mime.getType(img.uri) || "image/jpeg",
+            }));
+
+        const commonPayload = {
+            name,
+            brand,
+            price,
+            description,
+            category,
+            countInStock,
+            richDescription,
+            rating,
+            numReviews,
+            isFeatured,
+            existingImages,
+        };
+
+        if (mainImage && String(mainImage).startsWith("http")) {
+            commonPayload.mainImageUrl = mainImage;
+        }
+
         const formData = new FormData();
         formData.append("name", name);
         formData.append("brand", brand);
@@ -201,19 +249,10 @@ const ProductForm = (props) => {
             formData.append("mainImageUrl", mainImage);
         }
         // Tell backend which existing images to retain on update.
-        const existingImages = images
-            .filter((img) => img?.uri && img.local === false)
-            .map((img) => img.uri);
         formData.append("existingImages", JSON.stringify(existingImages));
 
         // Also send base64 payload for new images so backend can persist
         // them even if FormData file upload fails on some devices.
-        const imagesBase64 = images
-            .filter((img) => img?.local && img.base64)
-            .map((img) => ({
-                data: img.base64,
-                mime: img.mime || mime.getType(img.uri) || "image/jpeg",
-            }));
         if (imagesBase64.length > 0) {
             formData.append("imagesBase64", JSON.stringify(imagesBase64));
         }
@@ -236,27 +275,55 @@ const ProductForm = (props) => {
             });
         });
 
-        const config = {
+        const multipartConfig = {
             headers: {
                 // Let axios set the correct multipart boundary automatically.
                 Authorization: "Bearer " + token,
             },
+            timeout: REQUEST_TIMEOUT_MS,
         };
-        const productId = item?.id ?? item?._id;
+
         const thenNav = () => {
             Toast.show({ topOffset: 60, type: "success", text1: productId ? "Product updated" : "Product added" });
             setTimeout(() => navigation.navigate("Products"), 500);
         };
+
         const catchErr = (err) => {
             console.log('ProductForm error:', err?.response?.data || err?.message || err);
             const msg = err?.response?.data?.message || err?.message || "Something went wrong";
             Toast.show({ topOffset: 60, type: "error", text1: msg });
         };
-        const request = productId
-            ? axios.put(`${baseURL}products/${productId}`, formData, config)
-            : axios.post(`${baseURL}products`, formData, config);
 
-        request
+        const submit = async () => {
+            await warmUpBackendIfNeeded();
+
+            if (shouldUseJsonUpload) {
+                const jsonPayload = {
+                    ...commonPayload,
+                    imagesBase64,
+                };
+
+                const jsonConfig = {
+                    headers: {
+                        Authorization: "Bearer " + token,
+                        "Content-Type": "application/json",
+                    },
+                    timeout: REQUEST_TIMEOUT_MS,
+                };
+
+                if (productId) {
+                    return axios.put(`${baseURL}products/${productId}`, jsonPayload, jsonConfig);
+                }
+                return axios.post(`${baseURL}products`, jsonPayload, jsonConfig);
+            }
+
+            if (productId) {
+                return axios.put(`${baseURL}products/${productId}`, formData, multipartConfig);
+            }
+            return axios.post(`${baseURL}products`, formData, multipartConfig);
+        };
+
+        submit()
             .then((res) => (res.status === 200 || res.status === 201) && thenNav())
             .catch(catchErr)
             .finally(() => setIsSubmitting(false));
