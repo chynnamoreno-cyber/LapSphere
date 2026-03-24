@@ -1,8 +1,39 @@
 const express = require("express");
 const authJwt = require("../middleware/authJwt");
 const User = require("../models/User");
+const config = require("../config");
+const admin = require("firebase-admin");
 
 const router = express.Router();
+
+function initFirebaseIfNeeded() {
+  if (admin.apps.length > 0) return true;
+
+  let serviceAccount = null;
+  if (config.fcmServiceAccountJson) {
+    try {
+      serviceAccount = JSON.parse(config.fcmServiceAccountJson);
+    } catch (e) {
+      console.error("[debug] Invalid FCM_SERVICE_ACCOUNT_JSON:", e.message);
+    }
+  }
+
+  if (!serviceAccount && config.fcmServiceAccountPath) {
+    const path = require("path");
+    const fs = require("fs");
+    const resolvedPath = path.resolve(process.cwd(), config.fcmServiceAccountPath);
+    if (fs.existsSync(resolvedPath)) {
+      serviceAccount = require(resolvedPath);
+    }
+  }
+
+  if (!serviceAccount) return false;
+
+  admin.initializeApp({
+    credential: admin.credential.cert(serviceAccount),
+  });
+  return true;
+}
 
 // POST /debug/send-push-direct — admin test endpoint to send raw push directly to logged-in user
 router.post("/send-push-direct", authJwt, async (req, res) => {
@@ -74,6 +105,49 @@ router.post("/send-push-direct", authJwt, async (req, res) => {
               expoStatus: response.status,
               expoResponse: responseData,
             });
+          } else {
+            const ready = initFirebaseIfNeeded();
+            if (!ready) {
+              allResults.push({
+                user: { name: recipient.name, email: recipient.email },
+                fcmError: "FCM not configured on backend",
+              });
+              continue;
+            }
+
+            const fcmMessage = {
+              token: recipient.pushToken,
+              notification: {
+                title: "🔔 DIRECT FCM TEST PUSH",
+                body: "This is a direct FCM test. Check if you see a notification popup!",
+              },
+              data: {
+                type: "debug_direct_test",
+                timestamp: new Date().toISOString(),
+              },
+              android: {
+                priority: "high",
+                notification: {
+                  sound: "default",
+                  channelId: "lapsphere-high",
+                },
+              },
+            };
+
+            try {
+              const fcmId = await admin.messaging().send(fcmMessage);
+              allResults.push({
+                user: { name: recipient.name, email: recipient.email },
+                fcmStatus: "ok",
+                fcmId,
+              });
+            } catch (fcmError) {
+              allResults.push({
+                user: { name: recipient.name, email: recipient.email },
+                fcmStatus: "error",
+                fcmError: fcmError?.code || fcmError?.message,
+              });
+            }
           }
         } catch (e) {
           allResults.push({
