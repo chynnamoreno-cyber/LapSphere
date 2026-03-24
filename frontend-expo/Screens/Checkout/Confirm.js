@@ -1,5 +1,5 @@
 import React, { useState, useContext } from "react";
-import { View, StyleSheet, Dimensions, ScrollView, ActivityIndicator, TouchableOpacity } from "react-native";
+import { View, StyleSheet, Dimensions, ScrollView, ActivityIndicator, TouchableOpacity, Platform } from "react-native";
 import { Surface, Avatar, Divider, Text } from "react-native-paper";
 import { useNavigation } from "@react-navigation/native";
 import { useDispatch } from "react-redux";
@@ -16,7 +16,6 @@ var { width, height } = Dimensions.get("window");
 const FALLBACK_IMAGE = "https://cdn.pixabay.com/photo/2012/04/01/17/29/box-23649_960_720.png";
 
 const Confirm = (props) => {
-    const [token, setToken] = useState("");
     const [isProcessing, setIsProcessing] = useState(false);
     const finalOrder = props.route.params;
     const order = finalOrder?.order;
@@ -27,7 +26,9 @@ const Confirm = (props) => {
         try {
             if (!jwt) return false;
 
-            // If token already exists on backend, skip re-registration.
+            const preferNativeFcm = Platform.OS === "android" && Constants.appOwnership !== "expo";
+
+            // If token already exists on backend with expected type, skip re-registration.
             try {
                 const statusRes = await fetch(`${baseURL}users/push-token`, {
                     method: "GET",
@@ -35,7 +36,9 @@ const Confirm = (props) => {
                 });
                 if (statusRes.ok) {
                     const statusData = await statusRes.json().catch(() => ({}));
-                    if (statusData?.hasToken === true) {
+                    const expectedType = preferNativeFcm ? "fcm" : "expo";
+                    if (statusData?.hasToken === true && statusData?.tokenType === expectedType) {
+                        console.log(`[CheckoutPush] Existing ${expectedType} token already registered`);
                         return true;
                     }
                 }
@@ -60,26 +63,32 @@ const Confirm = (props) => {
                 process.env.EXPO_PUBLIC_EAS_PROJECT_ID;
 
             let pushToken = "";
-            let pushTokenType = "expo";
+            let pushTokenType = preferNativeFcm ? "fcm" : "expo";
 
-            try {
-                const expoToken = await Notifications.getExpoPushTokenAsync({ projectId });
-                if (expoToken?.data) {
-                    pushToken = String(expoToken.data);
-                    pushTokenType = "expo";
-                }
-            } catch (_expoTokenError) {
-                // Fallback below.
-            }
-
-            if (!pushToken) {
+            if (preferNativeFcm) {
                 try {
                     const native = await Notifications.getDevicePushTokenAsync();
                     if (native?.data) {
                         pushToken = String(native.data);
                         pushTokenType = "fcm";
+                        console.log("[CheckoutPush] Using Android native FCM token");
                     }
                 } catch (_nativeError) {
+                    // Fallback below.
+                }
+            }
+
+            if (!pushToken) {
+                try {
+                    const expoToken = projectId
+                        ? await Notifications.getExpoPushTokenAsync({ projectId })
+                        : await Notifications.getExpoPushTokenAsync();
+                    if (expoToken?.data) {
+                        pushToken = String(expoToken.data);
+                        pushTokenType = "expo";
+                        console.log("[CheckoutPush] Using Expo token fallback");
+                    }
+                } catch (_expoTokenError) {
                     // Ignore and continue.
                 }
             }
@@ -95,6 +104,8 @@ const Confirm = (props) => {
                 body: JSON.stringify({ token: pushToken, type: pushTokenType }),
             });
 
+            console.log(`[CheckoutPush] Registration response: ${registerRes.status}`);
+
             return registerRes.ok;
         } catch (_error) {
             return false;
@@ -107,7 +118,6 @@ const Confirm = (props) => {
 
         getJwtToken()
             .then(async (res) => {
-                setToken(res || "");
                 await ensurePushTokenRegistration(res || "");
                 const config = { headers: { Authorization: "Bearer " + res } };
                 return axios.post(`${baseURL}orders`, order, config);
@@ -120,6 +130,17 @@ const Confirm = (props) => {
                     text1: "Order Placed Successfully!",
                     text2: `Order #${res.data.id || res.data._id} has been confirmed`,
                 });
+
+                Notifications.scheduleNotificationAsync({
+                    content: {
+                        title: "Order Confirmation",
+                        body: `Your order #${res.data.id || res.data._id} has been confirmed!`,
+                        data: { route: "order-details", status: "pending" },
+                        sound: "default",
+                    },
+                    trigger: null,
+                }).catch(() => {});
+
                 setTimeout(() => {
                     dispatch(clearCart());
                     // Navigate parent stack back to close checkout, which will return to cart tab
