@@ -6,6 +6,30 @@ const User = require("../models/User");
 
 let firebaseInitialized = false;
 
+function sanitizeFcmData(input) {
+  const raw = input && typeof input === "object" ? input : {};
+  const out = {};
+
+  Object.entries(raw).forEach(([key, value]) => {
+    if (value === undefined || value === null) return;
+    if (typeof value === "string") {
+      out[key] = value;
+      return;
+    }
+    if (typeof value === "number" || typeof value === "boolean") {
+      out[key] = String(value);
+      return;
+    }
+    try {
+      out[key] = JSON.stringify(value);
+    } catch (_error) {
+      out[key] = String(value);
+    }
+  });
+
+  return out;
+}
+
 async function resolveBroadcastTokens(inputTokens = []) {
   const allUsers = await User.find(
     { pushToken: { $exists: true, $ne: null, $ne: "" } },
@@ -94,10 +118,12 @@ async function sendFCM(tokens, title, body, data) {
   initFirebase();
   if (!firebaseInitialized || tokens.length === 0) return;
 
+  const fcmData = sanitizeFcmData(data);
+
   const message = {
     tokens,
     notification: { title: title || "", body: body || "" },
-    data: data || {},
+    data: fcmData,
     android: {
       priority: "high",
       notification: {
@@ -106,6 +132,8 @@ async function sendFCM(tokens, title, body, data) {
       },
     },
   };
+
+  console.log(`[notifications] FCM data keys: ${Object.keys(fcmData).join(", ") || "(none)"}`);
 
   try {
     const result = await admin.messaging().sendEachForMulticast(message);
