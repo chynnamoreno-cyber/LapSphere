@@ -326,6 +326,17 @@ function getReviewSort(sortKey) {
   return { createdAt: -1 };
 }
 
+async function findDeliveredOrderForReview(userId, orderId, productId) {
+  if (!userId || !orderId || !productId) return null;
+
+  return Order.findOne({
+    _id: orderId,
+    user: userId,
+    status: "delivered",
+    "orderItems.product": productId,
+  }).lean();
+}
+
 // GET /products — public, used by home screen
 router.get("/", async (req, res) => {
   try {
@@ -417,6 +428,41 @@ router.get("/:id/reviews/me", authJwt, async (req, res) => {
   }
 });
 
+// GET /products/:id/reviews/eligibility?orderId=... — can current user review this product/order pair?
+router.get("/:id/reviews/eligibility", authJwt, async (req, res) => {
+  try {
+    const productId = toObjectIdOrNull(req.params.id);
+    const orderId = toObjectIdOrNull(req.query.orderId);
+    if (!productId || !orderId) {
+      return res.status(400).json({ message: "productId and orderId are required" });
+    }
+
+    const deliveredOrder = await findDeliveredOrderForReview(req.user.userId, orderId, productId);
+    if (!deliveredOrder) {
+      return res.status(200).json({
+        canReview: false,
+        reason: "Review is allowed only for products in your delivered orders",
+        hasReview: false,
+      });
+    }
+
+    const existing = await Review.findOne({
+      product: productId,
+      order: orderId,
+      user: req.user.userId,
+    }).lean();
+
+    return res.status(200).json({
+      canReview: true,
+      reason: null,
+      hasReview: Boolean(existing),
+      reviewId: existing?.id || existing?._id || null,
+    });
+  } catch (_error) {
+    return res.status(500).json({ message: "Failed to evaluate review eligibility" });
+  }
+});
+
 // POST /products/:id/reviews — create review (auth, max 3 images)
 router.post("/:id/reviews", authJwt, uploadReviewImages, async (req, res) => {
   try {
@@ -433,12 +479,7 @@ router.post("/:id/reviews", authJwt, uploadReviewImages, async (req, res) => {
     }
     if (!comment) return res.status(400).json({ message: "Comment is required" });
 
-    const deliveredOrder = await Order.findOne({
-      _id: orderId,
-      user: req.user.userId,
-      status: "delivered",
-      "orderItems.product": productId,
-    }).lean();
+    const deliveredOrder = await findDeliveredOrderForReview(req.user.userId, orderId, productId);
 
     if (!deliveredOrder) {
       return res.status(403).json({
@@ -533,6 +574,17 @@ async function updateReviewHandler(req, res) {
 
     if (review.user.toString() !== req.user.userId) {
       return res.status(403).json({ message: "You can edit only your own review" });
+    }
+
+    const deliveredOrder = await findDeliveredOrderForReview(
+      req.user.userId,
+      review.order,
+      productId
+    );
+    if (!deliveredOrder) {
+      return res.status(403).json({
+        message: "You can edit reviews only for products in your delivered orders",
+      });
     }
 
     if (req.body.rating !== undefined) {

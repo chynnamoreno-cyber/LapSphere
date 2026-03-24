@@ -29,6 +29,7 @@ const LeaveReview = ({ route, navigation }) => {
     const [pickedImages, setPickedImages] = useState([]);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
+    const [eligibility, setEligibility] = useState({ canReview: true, reason: "" });
 
     const totalMediaCount = existingImages.length + pickedImages.length;
 
@@ -41,12 +42,28 @@ const LeaveReview = ({ route, navigation }) => {
 
         const loadExisting = async () => {
             if (!productId || !orderId) {
+                setEligibility({ canReview: false, reason: "Missing product or order reference" });
                 setLoading(false);
                 return;
             }
 
             try {
                 const jwt = await getJwtToken();
+                const eligibilityRes = await axios.get(`${baseURL}products/${productId}/reviews/eligibility`, {
+                    headers: { Authorization: `Bearer ${jwt || ""}` },
+                    params: { orderId },
+                });
+
+                const canReview = eligibilityRes?.data?.canReview === true;
+                const reason = String(eligibilityRes?.data?.reason || "");
+                if (!isMounted) return;
+                setEligibility({ canReview, reason });
+
+                if (!canReview) {
+                    setLoading(false);
+                    return;
+                }
+
                 const response = await axios.get(`${baseURL}products/${productId}/reviews/me`, {
                     headers: { Authorization: `Bearer ${jwt || ""}` },
                     params: { orderId },
@@ -174,7 +191,7 @@ const LeaveReview = ({ route, navigation }) => {
     };
 
     const submit = async () => {
-        if (saving || !canSubmit) return;
+        if (saving || !canSubmit || !eligibility.canReview) return;
 
         try {
             setSaving(true);
@@ -182,6 +199,18 @@ const LeaveReview = ({ route, navigation }) => {
 
             if (!jwt) {
                 Toast.show({ topOffset: 60, type: "error", text1: "Please log in again" });
+                return;
+            }
+
+            const eligibilityRes = await axios.get(`${baseURL}products/${productId}/reviews/eligibility`, {
+                headers: { Authorization: `Bearer ${jwt || ""}` },
+                params: { orderId },
+            });
+
+            if (eligibilityRes?.data?.canReview !== true) {
+                const reason = String(eligibilityRes?.data?.reason || "You can only review delivered purchases");
+                setEligibility({ canReview: false, reason });
+                Toast.show({ topOffset: 60, type: "error", text1: reason });
                 return;
             }
 
@@ -245,6 +274,13 @@ const LeaveReview = ({ route, navigation }) => {
         <ScrollView style={styles.container} contentContainerStyle={styles.content}>
             <Text style={styles.title}>{existingReview ? "Edit Review" : "Leave a Review"}</Text>
             <Text style={styles.subtitle}>{productName || "Product"}</Text>
+
+            {!eligibility.canReview ? (
+                <View style={styles.blockedBox}>
+                    <Text style={styles.blockedTitle}>Review not available</Text>
+                    <Text style={styles.blockedText}>{eligibility.reason || "You can only review delivered purchases."}</Text>
+                </View>
+            ) : null}
 
             <View style={styles.field}>
                 <Text style={styles.label}>Rating</Text>
@@ -312,7 +348,7 @@ const LeaveReview = ({ route, navigation }) => {
 
             <TouchableOpacity
                 style={[styles.submitBtn, (!canSubmit || saving) && styles.submitBtnDisabled]}
-                disabled={!canSubmit || saving}
+                disabled={!canSubmit || saving || !eligibility.canReview}
                 onPress={submit}
             >
                 {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.submitText}>Save Review</Text>}
@@ -382,6 +418,16 @@ const styles = StyleSheet.create({
     },
     submitBtnDisabled: { backgroundColor: "#888" },
     submitText: { color: "#fff", fontWeight: "700", fontSize: 16 },
+    blockedBox: {
+        backgroundColor: "#fff4f4",
+        borderColor: "#f5c2c7",
+        borderWidth: 1,
+        borderRadius: 10,
+        padding: 12,
+        marginBottom: 12,
+    },
+    blockedTitle: { color: "#842029", fontWeight: "700", marginBottom: 4 },
+    blockedText: { color: "#842029" },
 });
 
 export default LeaveReview;
