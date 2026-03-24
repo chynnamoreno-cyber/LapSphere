@@ -338,15 +338,20 @@ function AppInner() {
           const registrationCacheKey = `registeredPushToken:${authUserId}:${pushTokenType}`;
           const storedToken = await AsyncStorage.getItem(registrationCacheKey);
           const backendAlreadyRegistered = await backendHasPushToken(jwt, pushTokenType);
+          const allowSkip = !(Platform.OS === 'android' && Constants.appOwnership !== 'expo');
           
           // Skip registration ONLY if:
           // - Stored token matches current token AND
           // - Backend says token is registered with correct type AND
           // - There's NO type mismatch (Expo token stored as FCM is definitely a mismatch to fix)
           const hasMismatch = pushToken.startsWith("ExponentPushToken") && pushTokenType === "fcm";
-          if (storedToken === pushToken && backendAlreadyRegistered && !hasMismatch) {
+          if (allowSkip && storedToken === pushToken && backendAlreadyRegistered && !hasMismatch) {
             console.log('[Push] Token unchanged for current user, skipping registration');
             return true;
+          }
+
+          if (!allowSkip) {
+            console.log('[Push] Forcing token refresh registration on Android non-Expo build');
           }
 
           // Register token with backend
