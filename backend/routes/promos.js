@@ -378,7 +378,12 @@ router.post("/test/send-notification", authJwt, async (req, res) => {
       return res.status(403).json({ message: "Admin access required" });
     }
 
-    const { title = "Test Notification", message = "This is a test push notification", userId } = req.body;
+    const {
+      title = "Test Notification",
+      message = "This is a test push notification",
+      userId,
+      includeSender = true,
+    } = req.body;
 
     console.log(`[promos.test] Sending test notification. userId=${userId || "all"}`);
 
@@ -441,6 +446,26 @@ router.post("/test/send-notification", authJwt, async (req, res) => {
         .filter((u) => u.pushToken && u.pushToken.trim())
         .map((u) => ({ token: u.pushToken, type: u.pushTokenType || "fcm" }));
 
+      // Optionally include the requesting admin's own device for easier end-to-end testing.
+      let senderIncluded = false;
+      const includeSenderBool = includeSender === true || String(includeSender).toLowerCase() === "true";
+      if (includeSenderBool) {
+        const sender = await User.findById(req.user.userId)
+          .select("name email pushToken pushTokenType")
+          .lean();
+
+        if (sender?.pushToken && sender.pushToken.trim()) {
+          const exists = tokens.some((t) => t.token === sender.pushToken);
+          if (!exists) {
+            tokens.push({ token: sender.pushToken, type: sender.pushTokenType || "fcm" });
+          }
+          senderIncluded = true;
+          console.log(`[promos.test] Included sender token for ${sender.email}`);
+        } else {
+          console.log("[promos.test] includeSender requested, but sender has no push token");
+        }
+      }
+
       if (tokens.length === 0) {
         console.log(`[promos.test] No users with push tokens found! Total users: ${totalUsers}`);
         return res.status(200).json({
@@ -468,6 +493,7 @@ router.post("/test/send-notification", authJwt, async (req, res) => {
         message: "Test notification sent to all users",
         sent: tokens.length,
         recipientCount: recipients.length,
+        senderIncluded,
         breakdown: {
           expo: tokens.filter(t => t.type === 'expo').length,
           fcm: tokens.filter(t => t.type === 'fcm').length,
