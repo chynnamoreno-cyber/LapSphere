@@ -371,7 +371,8 @@ function AppInner() {
             return true;
           } else {
             const errorData = await response.json().catch(() => ({}));
-            console.error('[Push] ❌ Registration failed:', response.status, errorData?.message);
+              console.error('[Push] ❌ Registration failed:', response.status, errorData?.message);
+              console.log(`[Push] DEBUG: Sent token=${pushToken.substring(0,30)}..., type=${pushTokenType}, user=${authUserId}`);
             Toast.show({
               topOffset: 60,
               type: 'error',
@@ -400,6 +401,8 @@ function AppInner() {
           pushRetryTimerRef.current = null;
         }
       }, 30000);
+         console.log(`[Push] 📊 REQUEST DETAILS: endpoint=${baseURL}users/push-token, token=${pushToken.substring(0,30)}..., type=${pushTokenType}, user=${authUserId}`);
+         console.log(`[Push] 📊 RESPONSE: HTTP ${response.status} ${response.statusText}`);
     };
 
     const bootstrap = async () => {
